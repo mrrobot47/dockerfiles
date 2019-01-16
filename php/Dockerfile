@@ -1,4 +1,4 @@
-FROM php:7.2-fpm
+FROM php:7.0-fpm
 
 LABEL maintainer="Mriyam Tamuli <mbtamuli@gmail.com>"
 LABEL org.label-schema.schema-version="1.0.0-rc1"
@@ -34,7 +34,7 @@ RUN pecl install imagick memcached; \
 	docker-php-ext-configure zip --with-libzip; \
 	docker-php-ext-configure --with-php-config=/usr/local/bin/php-config; \
 	docker-php-ext-configure imap --with-kerberos --with-imap-ssl; \
-	docker-php-ext-install gd imap mysqli opcache soap zip; \
+	docker-php-ext-install gd imap mcrypt mysqli opcache soap zip; \
 	docker-php-ext-enable imagick mcrypt redis; \
 	echo "extension=memcached.so" >> /usr/local/etc/php/conf.d/memcached.ini; \
 	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
@@ -59,7 +59,10 @@ RUN { \
 		echo 'opcache.fast_shutdown=1'; \
 		echo 'opcache.enable_cli=1'; \
 	} > /usr/local/etc/php/conf.d/opcache-recommended.ini
-
+RUN mkdir -p /usr/local/lib/php/extensions/no-debug-non-zts-20170718 && \
+	ln -s /usr/local/lib/php/extensions/no-debug-non-zts-20151012/opcache.so /usr/local/lib/php/extensions/no-debug-non-zts-20170718/opcache.so && \
+	ln -s /usr/local/lib/php/extensions/no-debug-non-zts-20151012/mcrypt.so /usr/local/lib/php/extensions/no-debug-non-zts-20151012/mycrypt.so
+RUN apt update && apt install libsodium-dev -y && pecl install -f libsodium
 # Donwload and install composer
 RUN curl -sSL "https://getcomposer.org/installer" | php \
 		&& mv composer.phar /usr/local/bin/composer
