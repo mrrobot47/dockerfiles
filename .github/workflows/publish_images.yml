@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['5.6', '7.0', '7.2', '7.4', '8.0', '8.1']
+        php: ['5.6', '7.0', '7.2', '7.4', '8.0', '8.1', 'php/stable']
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -35,7 +35,9 @@ jobs:
 
       - name: Img tag
         id: img-tag
-        run: echo ::set-output name=tag::${${{ matrix.php }}/php\/stable/}
+        run: |
+          PHP=${{ matrix.php }}
+          echo ::set-output name=tag::${PHP/php\/stable/}
 
       - name: Login to DockerHub
         uses: docker/login-action@v1
