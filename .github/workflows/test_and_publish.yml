@@ -5,11 +5,7 @@
 # #
 
 name: Test & Publish EE docker images
-on:
-  pull_request:
-  push:
-    tags:
-      - v*
+on: push
 
 jobs:
 
