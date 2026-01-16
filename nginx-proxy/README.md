@@ -145,10 +145,10 @@ The proxy automatically detects SSL certificates from `/etc/nginx/certs/`:
 
 When a vhost is accessed via HTTPS but no matching certificate is found:
 
-1. **If default certificate exists:** Uses `/etc/nginx/certs/default.crt` and returns 503
-2. **If no default certificate:** Rejects the SSL/TLS handshake
+- **If default certificate exists:** Uses `/etc/nginx/certs/default.crt` and returns 503
+- **If no default certificate:** No HTTPS server block is created for that vhost
 
-This prevents certificate warning dialogs in browsers and improves security by not exposing invalid certificates.
+**Note:** A default certificate is required to provide any HTTPS response for vhosts without valid certificates. Without it, nginx will only serve HTTP for those vhosts.
 
 ---
 
