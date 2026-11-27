@@ -495,10 +495,12 @@ final class Scanner {
 			if ( is_link( $releases ) || ! is_dir( $releases ) || ! $this->inside( $releases ) || dirname( $live ) !== $releases ) {
 				return [];
 			}
-			$old = [];
+			// A release holding the scan path is walked: EE's WordPress hint may name an old one (a stale wp-cli.yml path).
+			$scan = realpath( $this->cfg['path'] ) . '/';
+			$old  = [];
 			foreach ( (array) $this->readDir( $releases ) as $name ) {
 				$dir = $releases . '/' . $name;
-				if ( $dir !== $live && ! is_link( $dir ) && is_dir( $dir ) ) {
+				if ( $dir !== $live && ! is_link( $dir ) && is_dir( $dir ) && 0 !== strpos( $scan, $dir . '/' ) ) {
 					$old[] = $dir;
 				}
 			}

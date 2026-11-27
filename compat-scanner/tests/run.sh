@@ -356,6 +356,7 @@ scan mountcore "$WORK/mountcore" wp /var/www/htdocs 8.4 600 --mount "type=bind,s
 # Old releases: left out only when what nginx serves (COMPAT_SERVED) passes `current`.
 wpold_fixture "$WORK/wpold"
 scan wpold-served "$WORK/wpold" wp /var/www/htdocs/current 8.4 600
+scan wpold-hint "$WORK/wpold" wp /var/www/htdocs/releases/1 8.4 600 -e COMPAT_SERVED=/var/www/htdocs/current -e COMPAT_WP_SUPPORTED=6.8
 scan wpold-noserved "$WORK/wpold" wp /var/www/htdocs/current 8.4 600 -e COMPAT_SERVED=
 scan wpold-above "$WORK/wpold" wp /var/www/htdocs/current 8.4 600 -e COMPAT_SERVED=/var/www/htdocs
 R5=1 scan wpold-r5 "$WORK/wpold" wp /var/www/htdocs/current 8.4 600

@@ -864,6 +864,7 @@ foreach ( [ 'wpold-noserved', 'wpold-above', 'wpold-r5' ] as $name ) {
 	eq( [ counts( $name ), finding_files( report( $name ) ) ], [ [ 'ok', false, 2, 3, 0 ], [ 'directory:htdocs::releases/1/wp-content/plugins/old/old.php', 'directory:htdocs::releases/2/x.php' ] ], "$name: not sure, above current, or a v3.11.1 call: every release scanned" );
 }
 eq( report( 'wpold-noserved' )['excluded_old_releases'] ?? null, [], 'wpold-noserved: none left out' );
+eq( [ counts( 'wpold-hint' ), report( 'wpold-hint' )['excluded_old_releases'] ?? null ], [ [ 'ok', false, 1, 2, 0 ], [ '/var/www/htdocs/releases/2' ] ], 'wpold-hint: a scan path in an old release keeps that release scanned' );
 eq( out( 'phpold-noserved' )['errors'] ?? null, 3, 'phpold-noserved: an empty COMPAT_SERVED leaves no release out on php sites either' );
 
 $er = report( 'extraroot' );
