@@ -19,7 +19,7 @@ wp_fixture() {
 	mkdir -p "$wc"
 	ln -s /var/www/htdocs/releases/1 "$app/htdocs/current"
 
-	# Core and code outside the public dir: never scanned.
+	# Core: never scanned. Code outside the public dir is.
 	php_file "$rel/wp-includes/core.php" 'each( $a );'
 	php_file "$rel/wp-settings.php" 'each( $a );'
 
@@ -27,7 +27,7 @@ wp_fixture() {
 	php_file "$app/htdocs/wp-config.php" "define( 'DB_NAME', 'wp' );
 $bad"
 	ln -s ../wp-config.php "$app/htdocs/releases/wp-config.php"
-	php_file "$app/htdocs/wp-content/plugins/outside/outside.php" 'each( $a );'
+	php_file "$app/htdocs/wp-content/plugins/outside/outside.php" "$bad"
 
 	# Plugin with a header and two removed functions.
 	php_file "$wc/plugins/legacy/legacy.php" "/**
@@ -464,6 +464,7 @@ ext_php_fixture() {
 # tempbackup_fixture <app-dir>: a clean plugin beside WordPress' rollback copies in wp-content/upgrade-temp-backup/.
 tempbackup_fixture() {
 	local wc="$1/htdocs/wp-content"
+	wp_core "$1/htdocs" 6.8.3
 	php_file "$wc/plugins/p/p.php" '/* Plugin Name: P */'
 	php_file "$wc/upgrade-temp-backup/plugins/old/old.php" '/* Plugin Name: Old */
 each( $a );'
@@ -825,5 +826,113 @@ bak_fixture() {
 	php_file "$h/wp-content/themes/t/functions.php.bak" 'each( $a );'
 	php_file "$h/wp-content/themes/t/OLD.PHP.SAVE" 'each( $a );'
 	php_file "$h/dump.sql" 'each( $a );'
+	chmod -R a+rX "$1"
+}
+
+# wp_core <dir> <version>: a WordPress install's core, with each() in it, which is never scanned.
+wp_core() {
+	php_file "$1/wp-settings.php" 'each( $a );'
+	php_file "$1/wp-includes/version.php" "\$wp_version = '$2';"
+	php_file "$1/wp-admin/admin.php" 'each( $a );'
+}
+
+# wpapp_fixture <app-dir>: WordPress in htdocs, and code beside it in /var/www: a vendor/ dir, adminer.php, a full copy
+# of an older install, and a WP-CLI package in the www-data home.
+wpapp_fixture() {
+	local a=$1
+	wp_core "$a/htdocs" 6.8.3
+	php_file "$a/htdocs/wp-config.php" "require __DIR__ . '/../vendor/autoload.php';"
+	php_file "$a/htdocs/wp-content/plugins/p/p.php" '/* Plugin Name: P */'
+	php_file "$a/htdocs/wp-content/uploads/u.php" 'each( $a );'
+	printf '<?php each( $a );\n' > "$a/htdocs/wp-content/uploads/not-sniffed"
+	php_file "$a/vendor/autoload.php" 'each( $a );'
+	php_file "$a/adminer.php" 'each( $a );'
+	wp_core "$a/htdocs-backup" 6.1.1
+	php_file "$a/htdocs-backup/wp-content/plugins/q/q.php" 'each( $a );'
+	php_file "$a/.wp-cli/packages/vendor/x/legacy.php" 'each( $a );'
+	chmod -R a+rX "$a"
+}
+
+# nolive_fixture <app-dir>: the scan path isn't an install (no wp-settings.php there); one install beside it.
+nolive_fixture() {
+	local a=$1
+	php_file "$a/htdocs/wp-content/uploads/u.php" 'each( $a );'
+	printf '<?php each( $a );\n' > "$a/htdocs/wp-content/uploads/sniffed"
+	wp_core "$a/htdocs/wp" 6.8.1
+	chmod -R a+rX "$a"
+}
+
+# phpwpcore_fixture <app-dir>: a php site holding a WordPress copy, whose core PHPCompatibility would flag.
+phpwpcore_fixture() {
+	local h="$1/htdocs"
+	php_file "$h/index.php" 'echo 1;'
+	wp_core "$h/blog" 6.8.3
+	php_file "$h/blog/wp-includes/class-x.php" 'each( $a );'
+	php_file "$h/blog/wp-content/plugins/p/p.php" '/* Plugin Name: P */'
+	chmod -R a+rX "$1"
+}
+
+# mountcore_fixture <app-dir>: WordPress 6.8.3 in htdocs; <app-dir>-61 holds a 6.1.1 wp-includes that run.sh mounts over it.
+mountcore_fixture() {
+	wp_core "$1/htdocs" 6.8.3
+	php_file "$1/htdocs/wp-content/plugins/p/p.php" '/* Plugin Name: P */'
+	php_file "$1-61/version.php" "\$wp_version = '6.1.1';"
+	chmod -R a+rX "$1" "$1-61"
+}
+
+# wpold_fixture <app-dir>: a WordPress CI/CD site, htdocs/current -> releases/3, with errors in the old releases.
+wpold_fixture() {
+	local h="$1/htdocs"
+	wp_core "$h/releases/3" 6.8.3
+	php_file "$h/releases/3/wp-content/plugins/p/p.php" '/* Plugin Name: P */'
+	php_file "$h/releases/1/wp-content/plugins/old/old.php" 'each( $a );'
+	php_file "$h/releases/2/x.php" 'each( $a );'
+	ln -s releases/3 "$h/current"
+	chmod -R a+rX "$1"
+}
+
+# extraroot_fixture <dir>: <dir>/app with uploads linked to /mnt/media/uploads; <dir>/media and <dir>/shared, mounted
+# by run.sh at /mnt/media and /srv/shared.
+extraroot_fixture() {
+	local wc="$1/app/htdocs/wp-content"
+	wp_core "$1/app/htdocs" 6.8.3
+	php_file "$wc/plugins/p/p.php" '/* Plugin Name: P */'
+	ln -s /mnt/media/uploads "$wc/uploads"
+	php_file "$1/media/uploads/2026/x.php" 'each( $a );'
+	printf 'GIF89a' > "$1/media/uploads/2026/a.gif"
+	php_file "$1/shared/lib/y.inc" 'each( $a );'
+	printf '<?php each( $a );\n' > "$1/shared/lib/noext"
+	chmod -R a+rX "$1"
+}
+
+# require_fixture <app-dir>: prepend and append values in .user.ini files; run.sh adds COMPAT_REQUIRE.
+require_fixture() {
+	local h="$1/htdocs"
+	wp_core "$h" 6.8.3
+	php_file "$h/wordfence-waf.php" 'echo 1;'
+	printf 'notes\n' > "$h/notes.txt"
+	printf '<?php __HALT_COMPILER();' > "$h/wp-cli.phar"
+	printf 'auto_prepend_file = "/var/www/htdocs/wordfence-waf.php" ; Wordfence\nauto_append_file = none\n' > "$h/.user.ini"
+	mkdir -p "$h/wp-content/uploads"
+	printf "auto_prepend_file='waf.php'\nAUTO_APPEND_FILE = /opt/append.php\n" > "$h/wp-content/uploads/.user.ini"
+	chmod -R a+rX "$1"
+}
+
+# phar_fixture <app-dir> <none|named|upper|split>: phars, and a plugin file naming one (or not).
+phar_fixture() {
+	local p="$1/htdocs/wp-content/plugins/p" pad
+	wp_core "$1/htdocs" 6.8.3
+	php_file "$p/p.php" '/* Plugin Name: P */'
+	printf '<?php __HALT_COMPILER();' > "$1/htdocs/wp-cli.phar"
+	printf '<?php __HALT_COMPILER();' > "$p/lib.phar"
+	case $2 in
+		named) php_file "$p/boot.php" "include 'phar://' . __DIR__ . '/lib.phar/x.php';" ;;
+		upper) php_file "$p/boot.php" "\$x = 'LIB.PHAR';" ;;
+		split)
+			# `.phar` across the first 64 KiB read: 8 bytes of tag and comment start, then the pad, then `*/ $x = 'l`.
+			pad=$(head -c 65516 /dev/zero | tr '\0' a)
+			printf "<?php\n/*%s*/ \$x = 'l.phar';\n" "$pad" > "$p/boot.php"
+			;;
+	esac
 	chmod -R a+rX "$1"
 }
