@@ -59,6 +59,10 @@ jobs:
       - name: Check PHP - ${{ matrix.php }} modules and startup
         run: .github/scripts/check-php-image.sh easyengine/php${{ steps.img-tag.outputs.tag }}:test php/${{ matrix.php }}/expected-modules.txt
 
+      # site-command ignores nginx-helper's bundled Predis errors because every EE php image loads redis.
+      - name: Check PHP - ${{ matrix.php }} loads redis
+        run: docker run --rm --pull=never --entrypoint php easyengine/php${{ steps.img-tag.outputs.tag }}:test -m | grep -x redis
+
       - name: Build and push PHP - ${{ matrix.php }} image
         uses: docker/build-push-action@v7
         if: github.event_name != 'pull_request'
