@@ -280,7 +280,8 @@ $fc_rc  = preg_match( '/\] batch \d+ files rc=(\d+)/', $fc_err, $m ) ? (int) $m[
 check( null !== $fc_rc && ( 25 === ( $fc_rc & 0x7f ) || ( 255 === $fc_rc && false !== strpos( $fc_err, 'errno=27 File too large' ) ) ), "flood-cap: PHPCS stopped at the file size limit (rc=$fc_rc)" );
 check( false !== strpos( raw( 'flood-cap.stderr' ), 'core limit 0' ), 'flood-cap: core dumps disabled' );
 tool_error( 'full-cap', 'report larger than 100000 bytes', 1 );
-tool_error( 'wide-cap', 'file list larger than 100000 bytes', 1 );
+$wc = out( 'wide-cap' );
+eq( [ $wc['status'] ?? null, $wc['files_checked'] ?? null ], [ 'ok', 20000 ], 'wide-cap: no cap on the file list, only on findings' );
 tool_error( 'fullout', 'could not write', 1, false );
 
 // ------------------------------------------------------------- wp-config.php
@@ -437,12 +438,13 @@ foreach ( [ 'wplink-dangling', 'wplink-out', 'phplink-dangling' ] as $name ) {
 }
 
 $pb = out( 'phpbeside' );
-eq( [ $pb['status'] ?? null, field( $pb, 'safe_to_upgrade' ), $pb['errors'] ?? null, $pb['files_checked'] ?? null, $pb['files_not_checked'] ?? null ], [ 'ok', false, 2, 3, 2 ], 'phpbeside: code beside htdocs checked, tool dirs with code not_checked' );
-eq( report( 'phpbeside' )['not_checked'] ?? null, [ nc( 'directory', '..', null, '.composer/', 'skipped' ), nc( 'directory', '..', null, '.wp-cli/', 'skipped' ) ], 'phpbeside: dot dirs of /var/www holding code are skipped entries' );
+eq( [ $pb['status'] ?? null, field( $pb, 'safe_to_upgrade' ), $pb['errors'] ?? null, $pb['files_checked'] ?? null, $pb['files_not_checked'] ?? null ], [ 'ok', false, 4, 5, 0 ], 'phpbeside: code beside htdocs checked, and the code-named files of the home dirs' );
+eq( report( 'phpbeside' )['not_checked'] ?? null, [], 'phpbeside: home dirs holding code are no entries' );
+eq( finding_files( report( 'phpbeside' ) ), [ 'directory:../app::src/boot.php', 'directory:..::.composer/vendor/x/y.php', 'directory:..::.wp-cli/packages/z.php', 'directory:..::lib.php' ], 'phpbeside: findings in the home dirs count' );
 eq(
 	comp_rows( report( 'phpbeside' ) ),
 	[
-		[ 'directory', '..', null, null, null, 1, 1, 0 ],
+		[ 'directory', '..', null, null, null, 3, 3, 0 ],
 		[ 'directory', '../app', null, null, null, 1, 1, 0 ],
 		[ 'other', '', null, null, null, 1, 0, 0 ],
 	],
@@ -475,7 +477,7 @@ eq( trim( (string) file_get_contents( "$dir/mount-ro" ) ), 'readonly', 'code mou
 
 $ext = out( 'ext' );
 $r   = report( 'ext' );
-eq( [ $ext['status'] ?? null, field( $ext, 'safe_to_upgrade' ), $ext['errors'] ?? null, $ext['warnings'] ?? null, $ext['files_checked'] ?? null, $ext['files_not_checked'] ?? null, $ext['components_checked'] ?? null, $ext['components_with_errors'] ?? null ], [ 'ok', false, 15, 0, 19, 3, 4, 3 ], 'ext: verdict and counts' );
+eq( [ $ext['status'] ?? null, field( $ext, 'safe_to_upgrade' ), $ext['errors'] ?? null, $ext['warnings'] ?? null, $ext['files_checked'] ?? null, $ext['files_not_checked'] ?? null, $ext['components_checked'] ?? null, $ext['components_with_errors'] ?? null ], [ 'ok', false, 15, 0, 19, 4, 4, 3 ], 'ext: verdict and counts' );
 eq(
 	comp_rows( $r ),
 	[
@@ -498,10 +500,11 @@ eq(
 	$r['not_checked'] ?? null,
 	[
 		[ 'type' => 'plugin', 'slug' => 'ext', 'branch' => null, 'file' => 'gone.inc', 'reason' => 'unreadable' ],
+		[ 'type' => 'plugin', 'slug' => 'ext', 'branch' => null, 'file' => 'gone.old', 'reason' => 'unreadable' ],
 		[ 'type' => 'other', 'slug' => '', 'branch' => null, 'file' => 'plugins/gone.inc', 'reason' => 'unreadable' ],
 		[ 'type' => 'other', 'slug' => '', 'branch' => null, 'file' => 'themes/gone.inc', 'reason' => 'unreadable' ],
 	],
-	'ext: dangling code-named links are unreadable, in plugins/ and themes/ under other'
+	'ext: dangling code-named links, and one with a backup name, are unreadable, in plugins/ and themes/ under other'
 );
 $err = raw( 'ext.stderr' );
 preg_match_all( '/\] single (\S+) at /', $err, $m );
@@ -539,8 +542,8 @@ eq( [ $e['php_files'] ?? null, $e['php_bytes'] ?? null, $e['components'] ?? null
 
 eq( trim( raw( 'changed-gone.sync' ) ), 'ok', 'changed-gone: the change lands after the listing, before the next file' );
 $cg = out( 'changed-gone' );
-eq( [ $cg['status'] ?? null, field( $cg, 'safe_to_upgrade' ), $cg['files_checked'] ?? null ], [ 'ok', null, 1 ], 'changed-gone: no verdict, the remaining file checked' );
-eq( report( 'changed-gone' )['not_checked'] ?? null, [ [ 'type' => 'plugin', 'slug' => 'p', 'branch' => null, 'file' => 'z.php', 'reason' => 'unreadable' ] ], 'changed-gone: a file deleted since the listing is unreadable' );
+eq( [ $cg['status'] ?? null, field( $cg, 'safe_to_upgrade' ), $cg['files_checked'] ?? null ], [ 'ok', true, 1 ], 'changed-gone: the remaining file checked' );
+eq( report( 'changed-gone' )['not_checked'] ?? null, [], 'changed-gone: a file deleted since the listing can\'t run, so it is dropped' );
 
 $sl = out( 'slashes' );
 $r  = report( 'slashes' );
@@ -596,30 +599,6 @@ eq(
 );
 $e = out( 'est-skipdirs' );
 eq( [ $e['php_files'] ?? null, $e['php_bytes'] ?? null, $e['components'] ?? null ], [ 19, $sd['php_bytes'] ?? null, 3 ], 'est-skipdirs: counts equal the scan' );
-foreach ( [ 'skipdirs-files' => 'more than COMPAT_SKIPPED_FILES', 'skipdirs-bytes' => 'more than COMPAT_SKIPPED_BYTES (data-only files not counted)' ] as $name => $what ) {
-	$b = out( $name );
-	eq( [ $b['errors'] ?? null, $b['files_checked'] ?? null, $b['files_not_checked'] ?? null ], [ 6, 8, 3 ], "$name: uploads/ not listed" );
-	eq( report( $name )['not_checked'][1] ?? null, nc( 'other', '', null, 'uploads/', 'skipped' ), "$name: a skipped dir with $what of code is one entry" );
-}
-
-eq(
-	report( 'skipdirs-time' )['not_checked'] ?? null,
-	[
-		nc( 'plugin', 'p', null, '.git/', 'skipped' ),
-		nc( 'plugin', 'p', null, 'node_modules/', 'skipped' ),
-		nc( 'plugin', 'q', null, 'node_modules/', 'skipped' ),
-		nc( 'other', '', null, '.git/', 'skipped' ),
-		nc( 'other', '', null, 'cache/', 'skipped' ),
-		nc( 'other', '', null, 'node_modules/', 'skipped' ),
-		nc( 'other', '', null, 'upgrade-temp-backup/', 'skipped' ),
-		nc( 'other', '', null, 'upgrade/', 'skipped' ),
-		nc( 'other', '', null, 'uploads/', 'skipped' ),
-		nc( 'directory', 'htdocs', null, '.git/', 'unreadable' ),
-		nc( 'directory', 'htdocs', null, 'node_modules/', 'skipped' ),
-	],
-	'skipdirs-time: with no time left for skipped dirs, each one with anything in it is a skipped entry, code or not'
-);
-
 $sp = out( 'skipdirs-php' );
 eq( [ $sp['status'] ?? null, field( $sp, 'safe_to_upgrade' ), $sp['errors'] ?? null, $sp['files_checked'] ?? null, $sp['files_not_checked'] ?? null ], [ 'ok', false, 7, 18, 2 ], 'skipdirs-php: a php site walks uploads/ and cache/ whole (a .txt is never sniffed); node_modules/ and .git/ code files checked' );
 eq(
@@ -650,25 +629,25 @@ eq( finding_files( report( 'l10n' ) ), [ 'other:::languages/plugins/x-de_DE.l10n
 
 $sn = out( 'sniff' );
 $r  = report( 'sniff' );
-eq( [ $sn['status'] ?? null, field( $sn, 'safe_to_upgrade' ), $sn['errors'] ?? null, $sn['files_checked'] ?? null, $sn['files_not_checked'] ?? null ], [ 'ok', false, 4, 6, 5 ], 'sniff: verdict and counts (README.md, notes.txt, app.js, app.ts, style.css, data.json, big.txt and logo.png are not sniffed or not PHP)' );
+eq( [ $sn['status'] ?? null, field( $sn, 'safe_to_upgrade' ), $sn['errors'] ?? null, $sn['files_checked'] ?? null, $sn['files_not_checked'] ?? null ], [ 'ok', false, 4, 7, 4 ], 'sniff: verdict and counts (README.md, notes.txt, app.js, app.ts, style.css, data.json, big.txt and logo.png are not sniffed or not PHP)' );
 eq( array_column( array_filter( comp_of( $r, 'plugin', 'p' )['findings'] ?? [], static function ( $f ) { return 'WARNING' === $f['type']; } ), 'file' ), [ 'views/warn.html' ], 'sniff: a later tag with warnings only is checked and its warnings kept' );
 eq( finding_files( $r ), [ 'plugin:p::a-tpl.txt', 'plugin:p::bin/tool', 'plugin:p::views/admin.tpl', 'plugin:p::views/bom.html', 'plugin:p::views/warn.html' ], 'sniff: files starting with <?php or <?= (after a #! line or a BOM) are PHP; so is a link to a .php file (checked under the link name); warn.html has a warning' );
 eq(
 	$r['not_checked'] ?? null,
 	[
 		nc( 'plugin', 'p', null, 'a-lib.php', 'phar' ),
-		nc( 'plugin', 'p', null, 'big-mixed.tpl', 'php_tag' ),
 		nc( 'plugin', 'p', null, 'gone.phar', 'unreadable' ),
 		nc( 'plugin', 'p', null, 'lib.phar.tar.gz', 'phar' ),
 		nc( 'plugin', 'p', null, 'views/page.html', 'php_tag' ),
 	],
-	'sniff: a phar, first reached through a .php link to it (listed once, as the link), a dangling .phar link, a .phar.tar.gz, and text with a later PHP tag that is too large or has errors'
+	'sniff: a phar, first reached through a .php link to it (listed once, as the link), a dangling .phar link, a .phar.tar.gz, and text with a later PHP tag that has errors'
 );
+check( in_array( '/var/www/htdocs/wp-content/plugins/p/big-mixed.tpl', json_decode( raw( 'sniff.manifest.json' ), true )['checked'] ?? [], true ), 'sniff: a mixed file over 1 MiB is scanned' );
 $e = out( 'est-sniff' );
-eq( [ $e['php_files'] ?? null, $e['components'] ?? null, $e['inputs']['stdin_files'] ?? null ], [ 11, 1, 5 ], 'est-sniff: counts equal the scan; 5 files go through STDIN' );
+eq( [ $e['php_files'] ?? null, $e['components'] ?? null, $e['inputs']['stdin_files'] ?? null ], [ 11, 1, 6 ], 'est-sniff: counts equal the scan; 6 files go through STDIN' );
 $sp = out( 'sniff-php' );
-eq( [ $sp['status'] ?? null, field( $sp, 'safe_to_upgrade' ), $sp['errors'] ?? null, $sp['files_checked'] ?? null, $sp['files_not_checked'] ?? null ], [ 'ok', false, 4, 6, 5 ], 'sniff-php: the same on a php site' );
-eq( array_column( report( 'sniff-php' )['not_checked'] ?? [], 'reason' ), [ 'phar', 'php_tag', 'unreadable', 'phar', 'php_tag' ], 'sniff-php: same not_checked reasons' );
+eq( [ $sp['status'] ?? null, field( $sp, 'safe_to_upgrade' ), $sp['errors'] ?? null, $sp['files_checked'] ?? null, $sp['files_not_checked'] ?? null ], [ 'ok', false, 4, 7, 4 ], 'sniff-php: the same on a php site' );
+eq( array_column( report( 'sniff-php' )['not_checked'] ?? [], 'reason' ), [ 'phar', 'unreadable', 'phar', 'php_tag' ], 'sniff-php: same not_checked reasons' );
 
 $ne = out( 'nested' );
 $r  = report( 'nested' );
@@ -696,11 +675,11 @@ check( ( $hg['duration_s'] ?? 99 ) < 30, 'hang: the scan ends soon after the cap
 
 foreach ( [ 'cache' => 2506, 'cache50k' => 50006 ] as $name => $n ) {
 	$ca = out( $name );
-	eq( [ $ca['status'] ?? null, field( $ca, 'safe_to_upgrade' ), $ca['errors'] ?? null, $ca['files_checked'] ?? null, $ca['files_not_checked'] ?? null ], [ 'ok', false, 1, $n, 0 ], "$name: W3TC, WP Super Cache and Wordfence-style data files are checked without PHPCS; Docket Cache code and a data file too large to read to the end are scanned" );
+	eq( [ $ca['status'] ?? null, field( $ca, 'safe_to_upgrade' ), $ca['errors'] ?? null, $ca['files_checked'] ?? null, $ca['files_not_checked'] ?? null ], [ 'ok', false, 1, $n, 0 ], "$name: W3TC, WP Super Cache and Wordfence-style data files, a 9 MB one too, are checked without PHPCS; Docket Cache code is scanned" );
 	eq( finding_files( report( $name ) ), [ 'other:::cache/object/tail.php' ], "$name: a data header followed by another open tag is scanned" );
 	check( ( $ca['duration_s'] ?? 999 ) < 120, "$name: done in " . ( $ca['duration_s'] ?? '?' ) . ' s' );
 }
-check( 1 === preg_match_all( '/\] batch 4 files rc=/', raw( 'cache.stderr' ) ), 'cache: one PHPCS batch, of p.php, the Docket Cache file, tail.php and huge.php (data-only files take no run)' );
+check( 1 === preg_match_all( '/\] batch 3 files rc=/', raw( 'cache.stderr' ) ), 'cache: one PHPCS batch, of p.php, the Docket Cache file and tail.php (data-only files, huge.php too, take no run)' );
 $e = out( 'est-cache' );
 eq( [ $e['php_files'] ?? null, $e['components'] ?? null ], [ 2506, 2 ], 'est-cache: counts equal the scan' );
 
@@ -735,14 +714,14 @@ check( in_array( 'b64:' . base64_encode( $p . "\xff/node_modules/" ), $m['sniff'
 
 // Php sites: dot dirs of /var/www (the www-data home) are one entry when they hold code; one holding the public dir is walked.
 $pd = out( 'phpdot' );
-eq( [ $pd['status'] ?? null, field( $pd, 'safe_to_upgrade' ), $pd['errors'] ?? null, $pd['files_checked'] ?? null, $pd['files_not_checked'] ?? null ], [ 'ok', false, 2, 3, 2 ], 'phpdot: verdict and counts' );
-eq( finding_files( report( 'phpdot' ) ), [ 'directory:../.release::lib/helper.php', 'directory:..::.user.php' ], 'phpdot: code beside the public dir in .release, and a dot file, are checked' );
-eq( report( 'phpdot' )['not_checked'] ?? null, [ nc( 'directory', '..', null, '.composer/', 'skipped' ), nc( 'directory', '..', null, '.wp-cli/', 'skipped' ) ], 'phpdot: dot dirs holding code (a code name, or a sniffed vendor/bin script) are entries; caches are not' );
-$m = json_decode( raw( 'phpdot.manifest.json' ), true );
-eq( [ $m['sniff']['skipped_dirs'] ?? null, $m['not_checked'] ?? null ], [ [], [ '/var/www/.composer/', '/var/www/.wp-cli/' ] ], 'phpdot: manifest not_checked; dot dirs are not skipped dirs (the sniff applies there)' );
+eq( [ $pd['status'] ?? null, field( $pd, 'safe_to_upgrade' ), $pd['errors'] ?? null, $pd['files_checked'] ?? null, $pd['files_not_checked'] ?? null ], [ 'ok', false, 3, 4, 0 ], 'phpdot: verdict and counts' );
+eq( finding_files( report( 'phpdot' ) ), [ 'directory:../.release::lib/helper.php', 'directory:..::.user.php', 'directory:..::.wp-cli/packages/vendor/v/v.php' ], 'phpdot: code beside the public dir in .release, a dot file and a code file in the home are checked; the home\'s extension-less script isn\'t sniffed' );
+$home = [ '/var/www/.cache/', '/var/www/.composer/', '/var/www/.npm/', '/var/www/.wp-cli/' ];
+$m    = json_decode( raw( 'phpdot.manifest.json' ), true );
+eq( [ $m['sniff']['skipped_dirs'] ?? null, $m['not_checked'] ?? null ], [ $home, [] ], 'phpdot: the home dirs are searched by name only' );
 $pr = out( 'phpdot-root' );
 eq( [ $pr['status'] ?? null, field( $pr, 'safe_to_upgrade' ), $pr['files_checked'] ?? null, $pr['files_not_checked'] ?? null ], [ 'ok', true, 1, 0 ], 'phpdot-root: htdocs -> .release is scanned as the root; tool caches give no entry' );
-eq( json_decode( raw( 'phpdot-root.manifest.json' ), true )['sniff']['skipped_dirs'] ?? null, [], 'phpdot-root: no skipped dirs' );
+eq( json_decode( raw( 'phpdot-root.manifest.json' ), true )['sniff']['skipped_dirs'] ?? null, $home, 'phpdot-root: the home dirs are searched by name only' );
 
 // A directory uid 33 can list but not search is one entry, also inside a skipped dir.
 $ut = out( 'untrav' );
@@ -756,6 +735,11 @@ eq( [ $pf['status'] ?? null, $pf['files_not_checked'] ?? null ], [ 'ok', 20000 ]
 
 // ----------------------------------------------------------- file manifest
 
+$bk = out( 'bak' );
+eq( [ $bk['status'] ?? null, field( $bk, 'safe_to_upgrade' ), $bk['errors'] ?? null, $bk['files_checked'] ?? null, $bk['files_not_checked'] ?? null ], [ 'ok', true, 0, 2, 0 ], 'bak: backup-named files (bak, orig, SAVE, sql) aren\'t read, also one wp-config.php requires' );
+eq( json_decode( raw( 'bak.manifest.json' ), true )['checked'] ?? null, [ '/var/www/htdocs/wp-config.php', '/var/www/htdocs/wp-content/themes/t/functions.php' ], 'bak: only the code files checked' );
+eq( [ out( 'nomanifest' )['status'] ?? null, trim( raw( 'nomanifest.outdir' ) ) ], [ 'ok', './report.json' ], 'nomanifest: without COMPAT_MANIFEST, /out holds only report.json' );
+
 // r7: a link into an old release or the root's core is an entry by the link's own path (a release pointer beside
 // current, and a non-code file link, aren't); php home dot dirs; the per-file cap; the STDIN copy cap.
 $ol = out( 'oldlink' );
@@ -767,14 +751,20 @@ eq( [ $cl['status'] ?? null, field( $cl, 'safe_to_upgrade' ), $cl['files_checked
 eq( report( 'corelink' )['not_checked'] ?? null, [ nc( 'other', '', null, 'mu-plugins/', 'unreadable' ), nc( 'plugin', 'clean', null, 'boot.php', 'unreadable' ), nc( 'plugin', 'clean', null, 'inc/', 'unreadable' ), nc( 'other', '', null, 'plugins/coreplug/', 'unreadable' ), nc( 'plugin', 'lnk', null, 'lib.d', 'unreadable' ), nc( 'plugin', 'lnk', null, 'part', 'unreadable' ), nc( 'plugin', 'lnk', null, 'shm', 'unreadable' ), nc( 'other', '', null, 'themes/t/', 'unreadable' ), nc( 'other', '', null, 'cache/', 'unreadable' ), nc( 'other', '', null, 'uploads/d/', 'unreadable' ), nc( 'other', '', null, 'uploads/x.php', 'unreadable' ) ], 'corelink: core links (file, dir, plugin dir, theme dir, mu-plugins, a skipped name, links in uploads/) and lib.d/part/shm leaving the mount; not v.txt, out.log, readme.txt, or links to exactly /dev/null, /dev/stdout, /dev/stderr (debug.log, error_log, access, trace)' );
 eq( json_decode( raw( 'corelink.manifest.json' ), true )['not_checked'] ?? null, [ '/var/www/htdocs/wp-content/mu-plugins/', '/var/www/htdocs/wp-content/plugins/clean/boot.php', '/var/www/htdocs/wp-content/plugins/clean/inc/', '/var/www/htdocs/wp-content/plugins/coreplug/', '/var/www/htdocs/wp-content/plugins/lnk/lib.d', '/var/www/htdocs/wp-content/plugins/lnk/part', '/var/www/htdocs/wp-content/plugins/lnk/shm', '/var/www/htdocs/wp-content/themes/t/', '/var/www/htdocs/wp-content/cache/', '/var/www/htdocs/wp-content/uploads/d/', '/var/www/htdocs/wp-content/uploads/x.php' ], 'corelink: manifest by link path, never a core path' );
 $ph = out( 'phphome' );
-eq( [ $ph['status'] ?? null, field( $ph, 'safe_to_upgrade' ), $ph['files_checked'] ?? null, $ph['files_not_checked'] ?? null ], [ 'ok', null, 2, 3 ], 'phphome: verdict and counts' );
-eq( report( 'phphome' )['not_checked'] ?? null, [ nc( 'directory', '..', null, '.emptylocked/', 'unreadable' ), nc( 'directory', '..', null, '.locked2/', 'unreadable' ), nc( 'directory', '..', null, '.x.php', 'unreadable' ) ], 'phphome: dot dirs uid 33 can\'t open are unreadable; dangling non-code links and a dot link to a walked dir give nothing' );
+eq( [ $ph['status'] ?? null, field( $ph, 'safe_to_upgrade' ), $ph['files_checked'] ?? null, $ph['files_not_checked'] ?? null ], [ 'ok', null, 2, 6 ], 'phphome: verdict and counts' );
+eq(
+	report( 'phphome' )['not_checked'] ?? null,
+	[
+		nc( 'directory', '..', null, '.config/chromium/SingletonLock', 'unreadable' ),
+		nc( 'directory', '../.emptylocked', null, './', 'unreadable' ),
+		nc( 'directory', '../.locked2', null, './', 'unreadable' ),
+		nc( 'directory', '../.venv', null, 'bin/python', 'unreadable' ),
+		nc( 'directory', '../.bashrc', null, './', 'unreadable' ),
+		nc( 'directory', '..', null, '.x.php', 'unreadable' ),
+	],
+	'phphome: dangling links follow the rules of uploads/ in a home dir and of any dir elsewhere; dirs uid 33 can\'t open are unreadable; a dot link to a walked dir gives nothing'
+);
 eq( json_decode( raw( 'phphome.manifest.json' ), true )['checked'] ?? null, [ '/var/www/htdocs/index.php', '/var/www/lib/l.php' ], 'phphome: the dot link\'s target is checked by its own name' );
-foreach ( [ 'homebudget-skipped0' => [ nc( 'other', '', null, 'node_modules/', 'skipped' ) ], 'homebudget-home0' => [ nc( 'directory', '..', null, '.cache/', 'skipped' ) ] ] as $name => $want ) {
-	$hb = out( $name );
-	eq( [ $hb['status'] ?? null, field( $hb, 'safe_to_upgrade' ), $hb['files_checked'] ?? null ], [ 'ok', null, 1 ], "$name: verdict and counts" );
-	eq( report( $name )['not_checked'] ?? null, $want, "$name: dot dirs and skipped dirs have separate time budgets" );
-}
 $sc = out( 'slowcode' );
 eq( [ $sc['status'] ?? null, field( $sc, 'safe_to_upgrade' ), $sc['errors'] ?? null, $sc['files_checked'] ?? null, $sc['files_not_checked'] ?? null ], [ 'ok', false, 1, 3, 1 ], 'slowcode: a code-named file past COMPAT_FILE_TIMEOUT doesn\'t stop the scan' );
 eq( report( 'slowcode' )['not_checked'] ?? null, [ nc( 'plugin', 'p', null, 'slow.php', 'timeout' ) ], 'slowcode: the slow file alone is timeout; its batch neighbours are checked' );
@@ -794,7 +784,7 @@ $manifests = 0;
 foreach ( glob( "$dir/*.stdout" ) as $f ) {
 	$name = basename( $f, '.stdout' );
 	$doc  = json_decode( (string) file_get_contents( $f ), true );
-	if ( ! is_array( $doc ) || 'ok' !== ( $doc['status'] ?? null ) || ! empty( $doc['estimate'] ) ) {
+	if ( ! is_array( $doc ) || 'ok' !== ( $doc['status'] ?? null ) || ! empty( $doc['estimate'] ) || 'nomanifest' === $name ) {
 		check( ! is_file( "$dir/$name.manifest.json" ), "$name: no manifest unless the scan is ok" );
 		continue;
 	}
@@ -819,7 +809,7 @@ eq(
 		static function ( $f ) {
 			return "/var/www/htdocs/wp-content/plugins/p/$f";
 		},
-		[ 'bin/tool', 'p.php', 'tpl.php', 'views/admin.tpl', 'views/bom.html', 'views/warn.html' ]
+		[ 'big-mixed.tpl', 'bin/tool', 'p.php', 'tpl.php', 'views/admin.tpl', 'views/bom.html', 'views/warn.html' ]
 	),
 	'manifest: sniff checked (the link a-tpl.txt as its target tpl.php)'
 );
