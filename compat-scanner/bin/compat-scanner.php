@@ -127,6 +127,8 @@ final class Scanner {
 	private $dataFiles = 0;
 	/** @var int */
 	private $dataBytes = 0;
+	/** @var int Listed files deleted before their batch. */
+	private $dropped = 0;
 	/** @var int Phars collected, when they may be information (spooled to work/phars in a scan). */
 	private $pharCount = 0;
 	/** @var string|null The first scanned file naming a phar, which makes every phar not_checked. */
@@ -1419,6 +1421,7 @@ final class Scanner {
 	// ------------------------------------------------------------------- scan
 
 	private function scan(): array {
+		$atListing = $this->notCheckedCount;
 		rewind( $this->listFh );
 		$batch = [];
 		$read  = 0;
@@ -1437,6 +1440,11 @@ final class Scanner {
 		$this->listFh = null;
 		if ( $read !== $this->listedFiles ) {
 			throw new ToolError( 'could not read the file list' );
+		}
+		// Every listed file ends exactly once: checked, not_checked, or dropped because it is gone.
+		$settled = array_sum( array_column( $this->comps, 'files' ) ) + $this->notCheckedCount - $atListing + $this->dropped;
+		if ( $settled !== $this->listedFiles + $this->dataFiles ) {
+			throw new ToolError( 'internal error: the file counts don\'t add up' );
 		}
 		$this->checkPins();
 
@@ -1496,9 +1504,13 @@ final class Scanner {
 	private function runBatch( array $batch ): void {
 		$this->checkPins();
 		$batch = $this->prepare( $batch );
+		foreach ( $this->lint( $batch ) as $k => $result ) {
+			$batch[ $k ]['lint'] = $result;
+		}
+
 		$plain = [];
 		foreach ( $batch as $k => $f ) {
-			if ( null !== $f['real'] && ! $f['stdin'] ) {
+			if ( null !== $f['real'] && ! $f['stdin'] && ! isset( $f['lint'] ) ) {
 				$plain[ $f['real'] ] = $k;
 			}
 		}
@@ -1527,7 +1539,13 @@ final class Scanner {
 				// A deleted file can't run; one that can't be reached or is no longer a regular file isn't checked.
 				if ( file_exists( $f['path'] ) || is_link( $f['path'] ) || $this->denied( $f['path'] ) ) {
 					$this->spoolNotChecked( $f['comp'], $this->rel( $f['comp'], $f['path'] ), 'unreadable' );
+				} else {
+					$this->dropped++;
 				}
+				continue;
+			}
+			if ( isset( $f['lint'] ) ) {
+				$this->recordLint( $f );
 				continue;
 			}
 			if ( null !== $reader && ! $f['stdin'] ) {
@@ -1612,8 +1630,13 @@ final class Scanner {
 		}
 	}
 
+	/** The deadline is the only bound on a huge site, so the detail says how far the scan got. */
 	private function timedOutAt( string $path ): TimedOut {
-		return new TimedOut( sprintf( 'timed out after %d s at %s', $this->timeoutLabel, clean_text( $this->relMount( $path ) ) ) );
+		$done = array_sum( array_column( $this->comps, 'files' ) );
+		$all  = $this->listedFiles + $this->dataFiles;
+		$at   = clean_text( $this->relMount( $path ) );
+		$text = 'timed out after %d s at %s, with %d of %d files checked; run it again with a longer --timeout';
+		return new TimedOut( sprintf( $text, $this->timeoutLabel, $at, $done, $all ) );
 	}
 
 	/** A file missing from a finished run on a nearly full disk is a write failure, not `error`. */
@@ -1632,6 +1655,43 @@ final class Scanner {
 
 	private function tooLarge(): ToolError {
 		return new ToolError( sprintf( 'report larger than %d bytes', $this->cfg['report_max'] ) );
+	}
+
+	/** A file the lint failed, not run through PHPCS: an ERROR finding, or a not_checked reason (php_tag in a mixed file). */
+	private function recordLint( array $f ): void {
+		$rel    = $this->rel( $f['comp'], $f['path'] );
+		$reason = $f['lint'];
+		if ( is_array( $reason ) && $f['mixed'] ) {
+			$reason = 'php_tag';
+		}
+		if ( is_string( $reason ) ) {
+			$this->spoolNotChecked( $f['comp'], $rel, $reason, $f['real'] );
+			return;
+		}
+		list( $line, $text ) = $reason;
+		$entry = ',' . json_encode(
+			[
+				'file'    => clean_text( $rel ),
+				'line'    => $line,
+				'type'    => 'ERROR',
+				'source'  => 'CompatScanner.Syntax.ParseError',
+				'message' => clean_text( $text ),
+			],
+			JSON_FLAGS
+		);
+		$this->addReportBytes( strlen( $entry ) );
+		$this->append( $this->work . "/c{$f['comp']}.e", $entry );
+		$this->counted( $f, 1, 0 );
+	}
+
+	private function counted( array $f, int $errors, int $warnings ): void {
+		$c = &$this->comps[ $f['comp'] ];
+		$c['files']++;
+		$c['errors']   += $errors;
+		$c['warnings'] += $warnings;
+		$c['bytes']    += $f['size'];
+		unset( $c );
+		$this->manifestChecked( $f['real'], $f['st'] );
 	}
 
 	/** Counts one finished file and spools its findings from the report block. */
@@ -1691,13 +1751,7 @@ final class Scanner {
 			}
 		}
 
-		$c = &$this->comps[ $comp ];
-		$c['files']++;
-		$c['errors']   += $errors;
-		$c['warnings'] += $warnings;
-		$c['bytes']    += $f['size'];
-		unset( $c );
-		$this->manifestChecked( $f['real'], $f['st'] );
+		$this->counted( $f, $errors, $warnings );
 	}
 
 	/** @param string|null $manifestPath What the manifest lists, when it isn't the component's base plus `$file`. */
@@ -2010,25 +2064,9 @@ final class Scanner {
 				return $res;
 			}
 		}
-		$left = $this->deadline - microtime( true );
-		if ( $left <= 0 ) {
-			if ( is_resource( $in ) ) {
-				fclose( $in );
-				@unlink( $this->work . '/stdin' );
-			}
-			$res['timeout'] = true;
-			return $res;
-		}
-		$capped = $cap > 0 && $cap < $left;
-		if ( $capped ) {
-			$left = $cap;
-		}
-
 		@unlink( $report );
 
 		$cmd = [
-			// The exact time left (busybox takes fractions), so no run finishes past the deadline.
-			'timeout', '-s', 'KILL', sprintf( '%.3F', ceil( $left * 1000 ) / 1000 ),
 			PHP_BINARY, '-d', 'memory_limit=' . $memory, '-d', 'display_errors=stderr', '-d', 'log_errors=0',
 			PHPCS_BIN,
 			'--standard=' . ( 'php' === $this->cfg['site_type'] ? 'PHPCompatibility' : 'PHPCompatibilityWP' ),
@@ -2048,27 +2086,14 @@ final class Scanner {
 		}
 
 		$err = $this->cfg['debug'] ? STDERR : [ 'file', '/dev/null', 'w' ];
-		$t   = hrtime( true );
-
-		// Bounds what PHPCS can write (SIGXFSZ past the limit); set only around the fork.
+		// Bounds what PHPCS can write (SIGXFSZ past the limit).
 		$fsize = $this->cfg['report_max'] + max( FSIZE_SLACK, count( $paths ) * HEADER_MAX );
-		set_fsize( $fsize );
-		$proc = proc_open( $cmd, [ 0 => $in, 1 => [ 'file', '/dev/null', 'w' ], 2 => $err ], $pipes );
-		set_fsize( null );
+		$res   = array_merge( $res, $this->runTimed( $cmd, $cap, [ 0 => $in, 1 => [ 'file', '/dev/null', 'w' ], 2 => $err ], $fsize ) );
 		if ( is_resource( $in ) ) {
 			fclose( $in );
 			@unlink( $this->work . '/stdin' );
 		}
-		if ( ! is_resource( $proc ) ) {
-			throw new ToolError( 'could not start phpcs' );
-		}
-		$rc = proc_close( $proc );
-
-		$res['rc']      = $rc;
-		$res['seconds'] = ( hrtime( true ) - $t ) / 1e9;
-		// Killed by its own cap, not the scan deadline (busybox timeout reports SIGKILL as 9 or 137).
-		if ( $capped && in_array( $rc, [ 9, 137 ], true ) && $res['seconds'] >= $cap * 0.99 ) {
-			$res['capped'] = true;
+		if ( $res['capped'] || $res['timeout'] ) {
 			return $res;
 		}
 
@@ -2076,10 +2101,98 @@ final class Scanner {
 		$size = @filesize( $report );
 		if ( false !== $size && $size >= $fsize ) {
 			$res['too_large'] = true;
-		} elseif ( $rc >= 0 && $rc <= 3 && false !== $size ) {
+		} elseif ( $res['rc'] >= 0 && $res['rc'] <= 3 && false !== $size ) {
 			$res['ok'] = true;
 		}
 		return $res;
+	}
+
+	/**
+	 * Runs a command under `timeout -s KILL` with the time left, at most $cap seconds when $cap > 0.
+	 *
+	 * @return array{rc:int,seconds:float,capped:bool,timeout:bool} capped: killed by $cap; timeout: no time was left.
+	 */
+	private function runTimed( array $cmd, float $cap, array $spec, int $fsize = 0 ): array {
+		$res  = [ 'rc' => -1, 'seconds' => 0.0, 'capped' => false, 'timeout' => false ];
+		$left = $this->deadline - microtime( true );
+		if ( $left <= 0 ) {
+			$res['timeout'] = true;
+			return $res;
+		}
+		$capped = $cap > 0 && $cap < $left;
+		// The exact time left (busybox takes fractions), so no run finishes past the deadline.
+		$limit = sprintf( '%.3F', ceil( ( $capped ? $cap : $left ) * 1000 ) / 1000 );
+		$t     = hrtime( true );
+		// Set only around the fork, so the entrypoint's own writes aren't bound by it.
+		set_fsize( $fsize > 0 ? $fsize : null );
+		$proc = proc_open( array_merge( [ 'timeout', '-s', 'KILL', $limit ], $cmd ), $spec, $pipes );
+		set_fsize( null );
+		if ( ! is_resource( $proc ) ) {
+			throw new ToolError( 'could not start ' . basename( end( $cmd ) ) );
+		}
+		$res['rc']      = proc_close( $proc );
+		$res['seconds'] = ( hrtime( true ) - $t ) / 1e9;
+		// Killed by its own cap, not the scan deadline (busybox timeout reports SIGKILL as 9 or 137).
+		$res['capped'] = $capped && in_array( $res['rc'], [ 9, 137 ], true ) && $res['seconds'] >= $cap * 0.99;
+		return $res;
+	}
+
+	/**
+	 * `php -l` over a batch, then over each file on its own when the batch fails, since PHPCompatibility misses some parse
+	 * errors (`#[` before PHP 8 code, an unclosed final comment). Targets before 8.0 aren't linted: PHP 8.4 rejects
+	 * syntax they allow.
+	 *
+	 * @return array<int,array{0:int,1:string}|string> By batch key, the files that fail: [ line, message ] or a not_checked reason.
+	 */
+	private function lint( array $batch ): array {
+		$paths = array_filter( array_column( $batch, 'real' ) );
+		if ( ! $paths || version_compare( $this->cfg['version'], '8.0', '<' ) ) {
+			return [];
+		}
+		$res = $this->lintRun( array_values( $paths ), (float) $this->cfg['file_timeout'] );
+		if ( 0 === $res['rc'] ) {
+			return [];
+		}
+		$failed = [];
+		foreach ( $paths as $k => $real ) {
+			$res = $this->lintRun( [ $real ], $batch[ $k ]['cap'] );
+			if ( $res['timeout'] ) {
+				throw $this->timedOutAt( $batch[ $k ]['path'] );
+			}
+			if ( 0 !== $res['rc'] ) {
+				$failed[ $k ] = $this->lintResult( $res, $real );
+			}
+		}
+		return $failed;
+	}
+
+	private function lintRun( array $paths, float $cap ): array {
+		$err  = $this->work . '/lint.err';
+		$args = [ '-d', 'memory_limit=' . $this->cfg['retry_memory'], '-d', 'display_errors=stderr', '-d', 'log_errors=0' ];
+		// EE's php images turn short tags off; on, PHP would parse a template's `<?xml` as code.
+		$cmd = array_merge( [ PHP_BINARY, '-d', 'short_open_tag=0' ], $args, [ '-l' ], $paths );
+		$res = $this->runTimed( $cmd, $cap, [ 0 => [ 'file', '/dev/null', 'r' ], 1 => [ 'file', '/dev/null', 'w' ], 2 => [ 'file', $err, 'w' ] ] );
+
+		$res['stderr'] = (string) file_get_contents( $err, false, null, 0, 65536 );
+		return $res;
+	}
+
+	/** @return array{0:int,1:string}|string The finding, or `unparseable` for a target newer than this PHP, which can't parse its syntax. */
+	private function lintResult( array $res, string $real ) {
+		if ( $res['capped'] ) {
+			return 'timeout';
+		}
+		if ( in_array( $res['rc'], [ 9, 137 ], true ) || false !== strpos( $res['stderr'], 'Allowed memory size' ) ) {
+			return 'memory';
+		}
+		if ( 255 !== $res['rc'] ) {
+			return 'error';
+		}
+		if ( version_compare( $this->cfg['version'], PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION, '>' ) ) {
+			return 'unparseable';
+		}
+		preg_match( '/^(.*?)(?: on line (\d+))?$/s', trim( str_replace( ' in ' . $real, '', $res['stderr'] ) ), $m );
+		return [ (int) ( $m[2] ?? 0 ), $m[1] ];
 	}
 
 	/**

@@ -206,7 +206,7 @@ eq(
 	[ '6 PHPCompatibility.FunctionUse.RemovedFunctions.create_functionDeprecatedRemoved', '7 PHPCompatibility.FunctionUse.RemovedFunctions.eachDeprecatedRemoved' ],
 	'full: legacy findings'
 );
-eq( comp_of( $rep, 'plugin', 'broken' )['findings'][0]['source'] ?? '', 'PHPCompatibility.FunctionUse.RemovedFunctions.eachDeprecatedRemoved', 'full: syntax-error file still sniffed' );
+eq( array_intersect_key( comp_of( $rep, 'plugin', 'broken' )['findings'][0] ?? [], [ 'line' => 0, 'source' => 0 ] ), [ 'line' => 3, 'source' => 'CompatScanner.Syntax.ParseError' ], 'full: a syntax error is the lint\'s finding, on its line' );
 eq( [ $rep['wordpress_installs'] ?? null, $rep['excluded_old_releases'] ?? null, $rep['phars'] ?? null, field( $rep, 'phar_named_by' ) ], [ [ [ 'dir' => '/var/www/htdocs/releases/1', 'version' => '', 'live' => true ] ], [], [], null ], 'full: the live root (no version.php: unknown version), no old release, no phar' );
 eq( array_column( comp_of( $rep, 'plugin', 'annotated' )['findings'] ?? [], 'file' ), [ 'annotated.php', 'disable.php', 'inline.php', 'late.php', 'whole.php' ], 'full: annotations ignored (targeted phpcs:ignore, phpcs:ignoreFile on line 1 and line 6, blanket phpcs:disable, bare phpcs:ignore)' );
 eq( array_column( comp_of( $rep, 'plugin', 'order' )['findings'] ?? [], 'file' ), [ "a\u{FFFD}b.php", 'b.php', 'c.php' ], 'full: findings in file order with a STDIN file first' );
@@ -249,9 +249,9 @@ foreach ( [ 'batchmem' => 'single-file step', 'filemem' => 'higher-memory retry'
 
 $all = out( 'allmem' );
 $r   = report( 'allmem' );
-eq( [ field( $all, 'safe_to_upgrade' ), $all['errors'] ?? null, $all['files_checked'] ?? null, $all['files_not_checked'] ?? null ], [ null, 0, 0, 53 ], 'allmem: nothing checked, verdict null' );
+eq( [ field( $all, 'safe_to_upgrade' ), $all['errors'] ?? null, $all['files_checked'] ?? null, $all['files_not_checked'] ?? null ], [ false, 1, 1, 52 ], 'allmem: only the lint\'s finding checked' );
 $reasons = array_count_values( array_column( $r['not_checked'] ?? [], 'reason' ) );
-eq( $reasons, [ 'unreadable' => 4, 'memory' => 49 ], 'allmem: every file in not_checked with reason memory' );
+eq( $reasons, [ 'unreadable' => 4, 'memory' => 48 ], 'allmem: every other file in not_checked with reason memory' );
 
 $oom = out( 'oom' );
 eq( field( $oom, 'safe_to_upgrade' ), null, 'oom: verdict null' );
@@ -263,7 +263,7 @@ $t = out( 'timeout' );
 eq( rc( 'timeout' ), 1, 'timeout: exit 1' );
 eq( array_keys( $t ), [ 'v', 'status', 'site', 'target', 'safe_to_upgrade', 'detail' ], 'timeout: reduced keys only, no counts' );
 eq( [ $t['status'] ?? null, field( $t, 'safe_to_upgrade' ) ], [ 'tool_error', null ], 'timeout: tool_error, no verdict' );
-check( (bool) preg_match( '#^timed out after 1 s at htdocs/\S+\.php$#', $t['detail'] ?? '' ), 'timeout: detail names the file (' . ( $t['detail'] ?? '' ) . ')' );
+check( (bool) preg_match( '#^timed out after 1 s at htdocs/\S+\.php, with \d+ of \d+ files checked; run it again with a longer --timeout$#', $t['detail'] ?? '' ), 'timeout: detail names the file and how far the scan got (' . ( $t['detail'] ?? '' ) . ')' );
 eq( report( 'timeout' ), $t, 'timeout: report.json equals stdout, no not_checked' );
 
 // ------------------------------------------------------- memory and size bounds
@@ -767,7 +767,7 @@ eq(
 );
 eq( json_decode( raw( 'phphome.manifest.json' ), true )['checked'] ?? null, [ '/var/www/htdocs/index.php', '/var/www/lib/l.php' ], 'phphome: the dot link\'s target is checked by its own name' );
 $sc = out( 'slowcode' );
-eq( [ $sc['status'] ?? null, field( $sc, 'safe_to_upgrade' ), $sc['errors'] ?? null, $sc['files_checked'] ?? null, $sc['files_not_checked'] ?? null ], [ 'ok', false, 1, 3, 1 ], 'slowcode: a code-named file past COMPAT_FILE_TIMEOUT doesn\'t stop the scan' );
+eq( [ $sc['status'] ?? null, field( $sc, 'safe_to_upgrade' ), $sc['errors'] ?? null, $sc['files_checked'] ?? null, $sc['files_not_checked'] ?? null ], [ 'ok', false, 2, 3, 1 ], 'slowcode: a code-named file past COMPAT_FILE_TIMEOUT doesn\'t stop the scan' );
 eq( report( 'slowcode' )['not_checked'] ?? null, [ nc( 'plugin', 'p', null, 'slow.php', 'timeout' ) ], 'slowcode: the slow file alone is timeout; its batch neighbours are checked' );
 check( false !== strpos( raw( 'slowcode.stderr' ), ' capped' ), 'slowcode: the batch run was capped' );
 check( ( $sc['duration_s'] ?? 99 ) < 60, 'slowcode: the scan ends soon after the caps (' . ( $sc['duration_s'] ?? '?' ) . ' s)' );
@@ -889,6 +889,19 @@ foreach ( [ 'phar-info' => null, 'phar-named' => 'boot.php', 'phar-upper' => 'bo
 }
 $r = report( 'phar-r5call' );
 eq( [ array_key_exists( 'phars', $r ), array_column( $r['not_checked'] ?? [], 'reason' ) ], [ false, [ 'phar', 'phar' ] ], 'phar-r5call: a v3.11.1 call keeps phar entries' );
+
+$li = report( 'lint' );
+eq( counts( 'lint' ), [ 'ok', false, 3, 7, 1 ], 'lint: verdict and counts' );
+eq(
+	array_map( static function ( $f ) { return $f['file'] . ':' . $f['line'] . ':' . $f['source']; }, comp_of( $li, 'plugin', 'p' )['findings'] ?? [] ),
+	[ 'attr.php:3:CompatScanner.Syntax.ParseError', 'pipe.php:2:CompatScanner.Syntax.ParseError', 'unclosed.php:3:CompatScanner.Syntax.ParseError' ],
+	'lint: `#[` before code, the pipe operator and an unclosed comment fail on 8.4; an <?xml template and two files declaring one function don\'t'
+);
+eq( $li['not_checked'] ?? null, [ nc( 'plugin', 'p', null, 'views/broken.tpl', 'php_tag' ) ], 'lint: a parse error after other text is php_tag' );
+eq( [ counts( 'lint-85' ), array_column( report( 'lint-85' )['not_checked'] ?? [], 'reason' ) ], [ [ 'ok', null, 0, 4, 4 ], [ 'unparseable', 'unparseable', 'unparseable', 'unparseable' ] ], 'lint-85: above the scanner\'s PHP a lint failure is unparseable, not an error' );
+$l74 = report( 'lint-74' );
+$l74sources = array_column( comp_of( $l74, 'plugin', 'p' )['findings'] ?? [], 'source' );
+eq( [ in_array( 'CompatScanner.Syntax.ParseError', $l74sources, true ), array_column( $l74['not_checked'] ?? [], 'file' ) ], [ false, [ 'views/broken.tpl' ] ], 'lint-74: targets before 8.0 aren\'t linted (broken.tpl is PHPCS\'s own unparseable)' );
 
 tool_error( 'badargs-served', 'bad arguments: COMPAT_SERVED must be', 2, false );
 tool_error( 'badargs-supported', 'bad arguments: COMPAT_WP_SUPPORTED must be', 2, false );

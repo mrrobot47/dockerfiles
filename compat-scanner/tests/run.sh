@@ -184,7 +184,8 @@ scan rootlock "$WORK/rootlock" wp /var/www/htdocs 8.4 600
 estimate est-rootlock "$WORK/rootlock" wp /var/www/htdocs 8.4
 OUT_DIR_AT=report.json scan reportdir "$WORK/empty" wp /var/www/htdocs 8.4 600
 # A message longer than the reader's line limit is cut, not a failed scan.
-scan bigmsg "$WORK/bigmsg" wp /var/www/htdocs 8.4 600
+# 7.4: no lint, which would stop at the parse error PHP 7 gives that line.
+scan bigmsg "$WORK/bigmsg" wp /var/www/htdocs 7.4 600
 # Estimate settings: non-finite, and a range that doesn't contain the estimate.
 estimate est-inf "$WORK/wp" wp /var/www/htdocs/current 8.4 -e COMPAT_SECONDS_PER_BATCH=1e309
 estimate est-factors "$WORK/wp" wp /var/www/htdocs/current 8.4 -e COMPAT_LOW_FACTOR=2 -e COMPAT_HIGH_FACTOR=0.5
@@ -326,7 +327,8 @@ bigstdin_fixture "$WORK/bigstdin"
 scan oldlink "$WORK/oldlink" php /var/www/htdocs/current/public 8.4 600
 scan corelink "$WORK/corelink" wp /var/www/htdocs 8.4 600
 scan phphome "$WORK/phphome" php /var/www/htdocs 8.4 600
-scan slowcode "$WORK/slowcode" wp /var/www/htdocs 8.4 600 -e COMPAT_FILE_TIMEOUT=5 -e COMPAT_DEBUG=1
+# 7.4: no lint, which would find the unterminated string before PHPCS loops on it.
+scan slowcode "$WORK/slowcode" wp /var/www/htdocs 7.4 600 -e COMPAT_FILE_TIMEOUT=5 -e COMPAT_DEBUG=1
 scan bigstdin "$WORK/bigstdin" wp /var/www/htdocs 8.4 600
 estimate est-bigstdin "$WORK/bigstdin" wp /var/www/htdocs 8.4
 
@@ -378,6 +380,12 @@ phar_fixture "$WORK/phar-upper" upper
 phar_fixture "$WORK/phar-split" split
 for f in info named upper split; do scan "phar-$f" "$WORK/phar-$f" wp /var/www/htdocs 8.4 600; done
 R5=1 scan phar-r5call "$WORK/phar-info" wp /var/www/htdocs 8.4 600
+
+# The syntax lint: PHP 8 parse errors PHPCompatibility misses; above the scanner's PHP, unparseable instead.
+lint_fixture "$WORK/lint"
+scan lint "$WORK/lint" wp /var/www/htdocs 8.4 600
+scan lint-85 "$WORK/lint" wp /var/www/htdocs 8.5 600
+scan lint-74 "$WORK/lint" wp /var/www/htdocs 7.4 600
 
 # Malformed new env.
 scan badargs-served "$WORK/wp" wp /var/www/htdocs 8.4 600 -e COMPAT_SERVED=/etc
