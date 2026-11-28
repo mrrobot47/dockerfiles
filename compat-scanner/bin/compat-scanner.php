@@ -2668,7 +2668,7 @@ function mount_path( string $path, string $what ): string {
 	return $path;
 }
 
-/** An install's version: exactly one `$wp_version = '…';` line in its version.php, else '' (unknown). */
+/** An install's version: exactly one `$wp_version = '…';` or `"…"` line holding a plain version, else '' (unknown). */
 function wp_version( string $dir ): string {
 	$fh = open_regular( $dir . '/wp-includes/version.php' );
 	if ( null === $fh ) {
@@ -2681,10 +2681,10 @@ function wp_version( string $dir ): string {
 		}
 	}
 	fclose( $fh );
-	if ( 1 !== count( $lines ) || ! preg_match( '/^\s*\$wp_version\s*=\s*\'(\d+\.\d+[0-9A-Za-z.+-]*)\'\s*;\s*$/', $lines[0], $m ) ) {
+	if ( 1 !== count( $lines ) || ! preg_match( '/^\s*\$wp_version\s*=\s*([\'"])(\d+\.\d+[0-9A-Za-z.+-]*)\1\s*;\s*$/', $lines[0], $m ) ) {
 		return '';
 	}
-	return $m[1];
+	return $m[2];
 }
 
 /** major.minor of a WordPress version, as EE's support table names branches. */

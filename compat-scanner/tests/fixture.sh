@@ -880,6 +880,19 @@ mountcore_fixture() {
 	chmod -R a+rX "$1" "$1-61"
 }
 
+# wpquotes_fixture <app-dir>: version.php in either quote style; a double-quoted value PHP would expand stays unknown.
+wpquotes_fixture() {
+	local a=$1
+	wp_core "$a/htdocs" 6.8.3
+	php_file "$a/htdocs/wp-includes/version.php" '$wp_version = "6.8.3";'
+	wp_core "$a/single" 6.9.1
+	wp_core "$a/dollar" 6.8.1
+	php_file "$a/dollar/wp-includes/version.php" '$wp_version = "6.8.$x";'
+	wp_core "$a/brace" 6.8.1
+	php_file "$a/brace/wp-includes/version.php" '$wp_version = "6.8.{$x}";'
+	chmod -R a+rX "$a"
+}
+
 # wpold_fixture <app-dir>: a WordPress CI/CD site, htdocs/current -> releases/3, with errors in the old releases.
 wpold_fixture() {
 	local h="$1/htdocs"

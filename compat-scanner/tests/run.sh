@@ -352,6 +352,8 @@ OLD_CALL=1 scan oldcall-php "$WORK/phpwpcore" php /var/www/htdocs 8.4 600
 # A mount over the live root's wp-includes: the version PHP runs, not the one left underneath.
 mountcore_fixture "$WORK/mountcore"
 scan mountcore "$WORK/mountcore" wp /var/www/htdocs 8.4 600 --mount "type=bind,src=$WORK/mountcore-61,dst=/var/www/htdocs/wp-includes,readonly"
+wpquotes_fixture "$WORK/wpquotes"
+scan wpquotes "$WORK/wpquotes" wp /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.8,6.9
 
 # Old releases: left out only when what nginx serves (COMPAT_SERVED) passes `current`.
 wpold_fixture "$WORK/wpold"
