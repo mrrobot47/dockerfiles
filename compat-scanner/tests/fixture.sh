@@ -83,10 +83,10 @@ function clean_plugin() { return 1; }'
 	php_file "$wc/plugins/loop/loop.php" '/* Plugin Name: Loop */'
 	ln -s /var/www/htdocs/current/wp-content/plugins/loop "$wc/plugins/loop/self"
 
-	# Syntax error plus a removed function: still tokenized and sniffed.
-	php_file "$wc/plugins/broken/broken.php" "/* Plugin Name: Broken */
+	# A syntax error: the lint's finding.
+	[ "$errors" = 1 ] && php_file "$wc/plugins/broken/broken.php" "/* Plugin Name: Broken */
 function broken( \$a, {
-$( [ "$errors" = 1 ] && printf '%s' 'each( $a );' )"
+each( \$a );"
 
 	# PHPCS annotations are ignored: none of these hides the error.
 	php_file "$wc/plugins/annotated/annotated.php" "/* Plugin Name: Annotated */
@@ -647,7 +647,7 @@ cache_fixture() {
 	printf '<?php die(); ?><!DOCTYPE html><html><body>cached page</body></html>' > "$wc/cache/wp-cache-1a2b.php"
 	printf "<?php exit('Access denied'); ?>\\n<html></html>" > "$wc/cache/supercache/page.php"
 	printf "<?php if(!\\\\defined('ABSPATH')){return false;}\\nreturn array('key'=>'k','group'=>'options','data'=>array('a'=>1));\\n/*@DOCKET_CACHE_EOF*/" > "$wc/cache/docket-cache/0a1b2c.php"
-	printf '<?php exit; ?>data\\n<?php each( $a );\\n' > "$wc/cache/object/tail.php"
+	printf '<?php exit; ?>data\n<?php each( $a );\n' > "$wc/cache/object/tail.php"
 	# Too large to read to the end: scanned like other code, not counted as data.
 	{ printf '<?php exit; ?>'; head -c 9000000 /dev/zero | tr '\0' a; } > "$wc/cache/object/huge.php"
 	chmod -R a+rX "$1"
@@ -801,7 +801,7 @@ slowcode_fixture() {
 	php_file "$p/p.php" '/* Plugin Name: P */'
 	php_file "$p/a.php" 'echo 1;'
 	printf '<?php\n"${foo["${bar\n' > "$p/slow.php"
-	php_file "$p/z.php" 'each( $a );'
+	php_file "$p/z.php" 'ereg( "a", "b" );'
 	chmod -R a+rX "$1"
 }
 
@@ -934,5 +934,20 @@ phar_fixture() {
 			printf "<?php\n/*%s*/ \$x = 'l.phar';\n" "$pad" > "$p/boot.php"
 			;;
 	esac
+	chmod -R a+rX "$1"
+}
+
+# lint_fixture <app-dir>: files PHP 8.4 can't parse though PHPCompatibility passes them, and files it can.
+lint_fixture() {
+	local p="$1/htdocs/wp-content/plugins/p"
+	wp_core "$1/htdocs" 6.8.3
+	php_file "$p/p.php" '/* Plugin Name: P */'
+	printf '<?php\n#[Production]\ndefine( "A", 1 );\n' > "$p/attr.php"
+	printf '<?php\necho 1;\n/* never closed\n' > "$p/unclosed.php"
+	printf '<?php\n$x = "a" |> strtoupper(...);\n' > "$p/pipe.php"
+	printf '<?xml version="1.0"?>\n<feed><?php echo 1; ?></feed>\n' > "$p/feed.php"
+	php_file "$p/dup1.php" 'function same() {}'
+	php_file "$p/dup2.php" 'function same() {}'
+	mkdir -p "$p/views" && printf '<p>\n<?php function ( { ?>\n' > "$p/views/broken.tpl"
 	chmod -R a+rX "$1"
 }

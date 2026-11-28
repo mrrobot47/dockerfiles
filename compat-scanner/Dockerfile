@@ -20,6 +20,8 @@ FROM php:8.4.28-cli-alpine3.24
 LABEL org.label-schema.schema-version="1.0.0"
 LABEL org.label-schema.vendor="EasyEngine"
 LABEL org.label-schema.name="compat-scanner"
+# What site-command checks before a scan: bump it when the env, arguments or report change incompatibly.
+LABEL io.easyengine.compat-scanner.contract="2"
 
 COPY --from=composer /opt/compat-scanner /opt/compat-scanner
 COPY bin/ /opt/compat-scanner/bin/
