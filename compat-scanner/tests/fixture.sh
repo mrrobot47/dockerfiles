@@ -1014,3 +1014,13 @@ coreini_fixture() {
 	ln -s releases/2 "$h/current"
 	chmod -R a+rX "$1"
 }
+
+# secretroot_fixture <dir>: <dir>/app's wp-config.php links into <dir>/secrets, which run.sh mounts at /mnt/secrets;
+# <dir>/one.php is mounted as a file where a directory is expected.
+secretroot_fixture() {
+	wp_core "$1/app/htdocs" 6.8.3
+	php_file "$1/secrets/wp-config.php" 'each( $a );'
+	ln -s /mnt/secrets/wp-config.php "$1/app/htdocs/wp-config.php"
+	php_file "$1/one.php" 'each( $a );'
+	chmod -R a+rX "$1"
+}

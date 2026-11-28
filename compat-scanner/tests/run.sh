@@ -371,6 +371,12 @@ scan extraroot "$WORK/extraroot/app" wp /var/www/htdocs 8.4 600 \
 	-e COMPAT_EXTRA_ROOTS=$'/mnt/media\n/srv/shared'
 scan extraroot-none "$WORK/extraroot/app" wp /var/www/htdocs 8.4 600
 
+# wp-config.php linked into a mount is checked there; a file mounted where a directory is expected is unreadable.
+secretroot_fixture "$WORK/secretroot"
+scan secretroot "$WORK/secretroot/app" wp /var/www/htdocs 8.4 600 \
+	--mount "type=bind,src=$WORK/secretroot/secrets,dst=/mnt/secrets,readonly" --mount "type=bind,src=$WORK/secretroot/one.php,dst=/srv/one.php,readonly" \
+	-e COMPAT_EXTRA_ROOTS=$'/mnt/secrets\n/srv/one.php'
+
 # Prepend and append targets (COMPAT_REQUIRE, .user.ini): each must be a file the scan read.
 require_fixture "$WORK/require"
 scan require "$WORK/require" wp /var/www/htdocs 8.4 600 \

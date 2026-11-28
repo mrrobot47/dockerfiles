@@ -227,7 +227,12 @@ final class Scanner {
 		// Directories the php container mounts outside /var/www: searched by name, after /var/www so a link into one
 		// keeps its own component.
 		foreach ( $this->cfg['extra_roots'] as $root ) {
-			$this->skipped( $root, '.', $this->comp( 'directory', $root, null, $root ) );
+			$comp = $this->comp( 'directory', $root, null, $root );
+			if ( is_dir( $root ) ) {
+				$this->skipped( $root, '.', $comp );
+			} else {
+				$this->notChecked( $comp, './', 'unreadable' );
+			}
 		}
 		// PHP reads a .user.ini for the scripts below it in the directories left out too: core and old releases.
 		foreach ( $this->leftOutDirs() as $dir ) {
@@ -368,9 +373,10 @@ final class Scanner {
 		$root   = $wp . '/wp-content';
 		$config = $this->wpConfig( $wp );
 		if ( null !== $config ) {
-			// Reported by its real path relative to /var/www (the file to edit), e.g. htdocs/wp-config.php.
+			// Reported by its real path relative to /var/www (the file to edit), e.g. htdocs/wp-config.php; one linked out of
+			// /var/www by the link, which visit() follows.
 			$real = @realpath( $config );
-			$path = false !== $real && $this->inside( $real ) ? $real : $config;
+			$path = false !== $real && 0 === strpos( $real, MOUNT_ROOT . '/' ) ? $real : $config;
 			$this->visit( $path, 'wp-config.php', $this->comp( 'other', 'wp-config.php', null, MOUNT_ROOT ) );
 		}
 

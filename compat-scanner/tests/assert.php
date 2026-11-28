@@ -889,6 +889,11 @@ eq( finding_files( $er ), [ 'directory:/srv/shared::lib/y.inc', 'other:::uploads
 eq( json_decode( raw( 'extraroot.manifest.json' ), true )['roots'] ?? null, [ '/var/www/', '/mnt/media/', '/srv/shared/' ], 'extraroot: manifest roots' );
 eq( [ counts( 'extraroot-none' ), report( 'extraroot-none' )['not_checked'] ?? null ], [ [ 'ok', null, 0, 1, 1 ], [ nc( 'other', '', null, 'uploads/', 'unreadable' ) ] ], 'extraroot-none: without the mount the link dangles: unreadable' );
 
+eq( counts( 'secretroot' ), [ 'ok', false, 1, 1, 1 ], 'secretroot: wp-config.php linked into a mount is checked' );
+eq( finding_files( report( 'secretroot' ) ), [ 'other:wp-config.php::htdocs/wp-config.php' ], 'secretroot: by the link\'s path' );
+$file_root = nc( 'directory', '/srv/one.php', null, './', 'unreadable' );
+eq( report( 'secretroot' )['not_checked'] ?? null, [ $file_root ], 'secretroot: a root that is a file is unreadable' );
+
 eq( counts( 'require' ), [ 'ok', null, 0, 1, 7 ], 'require: prepend and append targets the scan didn\'t read give no verdict' );
 eq(
 	array_column( report( 'require' )['not_checked'] ?? [], 'file' ),
