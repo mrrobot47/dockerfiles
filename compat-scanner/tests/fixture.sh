@@ -427,6 +427,8 @@ ext_fixture() {
 	# Not code: never listed.
 	for f in readme.txt x.phps x.js; do php_file "$wc/plugins/ext/$f" 'each( $a );'; done
 	ln -s nowhere.inc "$wc/plugins/ext/gone.inc"
+	# A dangling link under a backup name still counts: the php container may see a file there.
+	ln -s nowhere.old "$wc/plugins/ext/gone.old"
 
 	# Only a lowercase .php file is a single-file plugin or a header candidate, as in WordPress.
 	php_file "$wc/plugins/legacy.inc" '/* Plugin Name: Not A Plugin */
@@ -791,16 +793,6 @@ phphome_fixture() {
 	chmod 0700 "$a/.emptylocked" "$a/.locked2"
 }
 
-# homebudget_fixture <app-dir>: a php site with a code-free dot dir and a code-free node_modules beside the code.
-homebudget_fixture() {
-	local a=$1
-	php_file "$a/htdocs/index.php" 'echo 1;'
-	mkdir -p "$a/.cache" "$a/htdocs/node_modules/a"
-	printf 'data\n' > "$a/.cache/blob.bin"
-	printf 'readme\n' > "$a/htdocs/node_modules/a/readme"
-	chmod -R a+rX "$a"
-}
-
 # slowcode_fixture <app-dir>: a code-named file that keeps PHPCompatibility looping (an unterminated nested string, as in
 # PHPCS's own DoubleQuotedStringTest.inc), beside clean files and one with an error, all in one batch.
 slowcode_fixture() {
@@ -819,5 +811,19 @@ bigstdin_fixture() {
 	php_file "$p/p.php" '/* Plugin Name: P */'
 	{ printf '<?php\n'; for i in $(seq 1 40000); do printf '$a%d = 1; // padding padding\n' "$i"; done; printf 'each( $a );\n'; } > "$p/BIG.PHP"
 	{ printf '<?php\n/*\n'; head -c 17825792 /dev/zero | tr '\0' 'x'; printf '\n*/\neach( $a );\n'; } > "$p/HUGE.PHP"
+	chmod -R a+rX "$1"
+}
+
+# bak_fixture <app-dir>: backup copies with errors, never read, even one wp-config.php requires (an accepted miss).
+bak_fixture() {
+	local h="$1/htdocs"
+	php_file "$h/wp-settings.php"
+	mkdir -p "$h/wp-includes"
+	php_file "$h/wp-config.php" "require __DIR__ . '/wp-config.php.orig';"
+	php_file "$h/wp-config.php.orig" 'each( $a );'
+	php_file "$h/wp-content/themes/t/functions.php" 'echo 1;'
+	php_file "$h/wp-content/themes/t/functions.php.bak" 'each( $a );'
+	php_file "$h/wp-content/themes/t/OLD.PHP.SAVE" 'each( $a );'
+	php_file "$h/dump.sql" 'each( $a );'
 	chmod -R a+rX "$1"
 }

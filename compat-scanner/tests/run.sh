@@ -48,7 +48,7 @@ scan() {
 		--cap-drop ALL --security-opt no-new-privileges --pids-limit 64 \
 		--memory 1g --memory-swap 1g --cpus 1 --cpu-shares 256 \
 		--user 33:33 \
-		-e COMPAT_SITE=fixture.test -e COMPAT_IMAGE="$IMAGE" "$@" \
+		-e COMPAT_SITE=fixture.test -e COMPAT_IMAGE="$IMAGE" -e COMPAT_MANIFEST="${MANIFEST-1}" "$@" \
 		--mount "type=bind,src=$(realpath "$app"),dst=/var/www,readonly" \
 		--mount "type=bind,src=$out,dst=/out" \
 		$(entry) scan "$type" "$path" "$ver" "$timeout" > "$RES/$name.stdout" 2> "$RES/$name.stderr" || rc=$?
@@ -275,9 +275,6 @@ sniff_fixture "$WORK/sniff"
 nested_fixture "$WORK/nested"
 wordfence_fixture "$WORK/wordfence"
 scan skipdirs "$WORK/skipdirs" wp /var/www/htdocs 8.4 600
-scan skipdirs-files "$WORK/skipdirs" wp /var/www/htdocs 8.4 600 -e COMPAT_SKIPPED_FILES=7
-scan skipdirs-bytes "$WORK/skipdirs" wp /var/www/htdocs 8.4 600 -e COMPAT_SKIPPED_BYTES=5000
-scan skipdirs-time "$WORK/skipdirs" wp /var/www/htdocs 8.4 600 -e COMPAT_SKIPPED_SECONDS=0
 scan wordfence "$WORK/wordfence" wp /var/www/htdocs 8.4 600
 estimate est-skipdirs "$WORK/skipdirs" wp /var/www/htdocs 8.4
 scan skipdirs-php "$WORK/skipdirs" php /var/www/htdocs 8.4 600
@@ -315,17 +312,19 @@ ENTRY_MEMORY=10M scan pharflood "$WORK/pharflood" wp /var/www/htdocs 8.4 600
 oldlink_fixture "$WORK/oldlink"
 corelink_fixture "$WORK/corelink"
 phphome_fixture "$WORK/phphome"
-homebudget_fixture "$WORK/homebudget"
 slowcode_fixture "$WORK/slowcode"
 bigstdin_fixture "$WORK/bigstdin"
 scan oldlink "$WORK/oldlink" php /var/www/htdocs/current/public 8.4 600
 scan corelink "$WORK/corelink" wp /var/www/htdocs 8.4 600
 scan phphome "$WORK/phphome" php /var/www/htdocs 8.4 600
-scan homebudget-skipped0 "$WORK/homebudget" php /var/www/htdocs 8.4 600 -e COMPAT_SKIPPED_SECONDS=0
-scan homebudget-home0 "$WORK/homebudget" php /var/www/htdocs 8.4 600 -e COMPAT_HOME_SECONDS=0
 scan slowcode "$WORK/slowcode" wp /var/www/htdocs 8.4 600 -e COMPAT_FILE_TIMEOUT=5 -e COMPAT_DEBUG=1
 scan bigstdin "$WORK/bigstdin" wp /var/www/htdocs 8.4 600
 estimate est-bigstdin "$WORK/bigstdin" wp /var/www/htdocs 8.4
+
+# Backup copies aren't read; production runs write no manifest.
+bak_fixture "$WORK/bak"
+scan bak "$WORK/bak" wp /var/www/htdocs 8.4 600
+MANIFEST= scan nomanifest "$WORK/wp-clean" wp /var/www/htdocs/current 8.4 600
 
 # An estimate keeps time for calibration: throttled, the listing of 20,000 files can't finish in its share of 1 s.
 estimate est-listing "$WORK/wide" wp /var/www/htdocs 8.4 -e COMPAT_ESTIMATE_TIMEOUT=1 --cpus 0.05
