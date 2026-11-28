@@ -2254,6 +2254,8 @@ final class Scanner {
 	private function lintRun( array $paths, float $cap ): array {
 		$err  = $this->work . '/lint.err';
 		$args = [ '-d', 'memory_limit=' . $this->cfg['retry_memory'], '-d', 'display_errors=stderr', '-d', 'log_errors=0' ];
+		// Fatal errors only: a deprecation PHP prints while compiling would come before the one line lintResult() reads.
+		$args = array_merge( $args, [ '-d', 'error_reporting=' . ( E_ERROR | E_PARSE | E_CORE_ERROR | E_COMPILE_ERROR ) ] );
 		// EE's php images turn short tags off; on, PHP would parse a template's `<?xml` as code.
 		$cmd = array_merge( [ PHP_BINARY, '-d', 'short_open_tag=0' ], $args, [ '-l' ], $paths );
 		$res = $this->runTimed( $cmd, $cap, [ 0 => [ 'file', '/dev/null', 'r' ], 1 => [ 'file', '/dev/null', 'w' ], 2 => [ 'file', $err, 'w' ] ] );

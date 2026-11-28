@@ -962,9 +962,9 @@ $sniff    = 'CompatScanner.Functions.NativeDeclared.Found';
 $always   = [ "strlen.php:$lint", "twice.php:$lint" ];
 $by_ver   = [
 	'8.3' => $always,
-	'8.4' => array_merge( [ "find.php:$lint" ], $always ),
-	'8.5' => array_merge( [ "find.php:$lint", "first.php:$sniff" ], $always ),
-	'8.6' => array_merge( [ "clamp.php:$sniff", "find.php:$lint", "first.php:$sniff" ], $always ),
+	'8.4' => array_merge( [ "find.php:$lint", "legacy.php:$lint" ], $always ),
+	'8.5' => array_merge( [ "find.php:$lint", "first.php:$sniff", "legacy.php:$lint" ], $always ),
+	'8.6' => array_merge( [ "clamp.php:$sniff", "find.php:$lint", "first.php:$sniff", "legacy.php:$lint" ], $always ),
 ];
 foreach ( $by_ver as $v => $want ) {
 	$r   = report( "native-$v" );

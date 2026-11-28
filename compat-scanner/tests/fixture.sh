@@ -1053,6 +1053,9 @@ native_fixture() {
 	wp_core "$1/htdocs" 6.8.3
 	php_file "$p/p.php" '/* Plugin Name: P */'
 	php_file "$p/find.php" 'function array_find( $a, $f ) { return null; }'
+	# PHP 8.4 prints a deprecation for the first function while compiling, before the redeclare.
+	php_file "$p/legacy.php" 'function p_old( array $x = null ) {}
+function array_find( $a, $f ) { return null; }'
 	php_file "$p/first.php" 'if ( function_exists( "array_first" ) ) { return; }
 function Array_First( $a ) { return null; }'
 	php_file "$p/clamp.php" 'function clamp( $v, $min, $max ) { return $v; }'

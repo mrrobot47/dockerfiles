@@ -33,4 +33,5 @@ return [
 	'clamp'                            => '8.6',
 	'stream_last_errors'               => '8.6',
 	'stream_clear_errors'              => '8.6',
+	'stream_socket_get_crypto_status'  => '8.6',
 ];
