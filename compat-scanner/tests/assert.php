@@ -263,7 +263,9 @@ $t = out( 'timeout' );
 eq( rc( 'timeout' ), 1, 'timeout: exit 1' );
 eq( array_keys( $t ), [ 'v', 'status', 'site', 'target', 'safe_to_upgrade', 'detail' ], 'timeout: reduced keys only, no counts' );
 eq( [ $t['status'] ?? null, field( $t, 'safe_to_upgrade' ) ], [ 'tool_error', null ], 'timeout: tool_error, no verdict' );
-check( (bool) preg_match( '#^timed out after 1 s at htdocs/\S+\.php, with \d+ of \d+ files checked; run it again with a longer --timeout$#', $t['detail'] ?? '' ), 'timeout: detail names the file and how far the scan got (' . ( $t['detail'] ?? '' ) . ')' );
+$detail = $t['detail'] ?? '';
+$where  = preg_match( '#^timed out after 1 s at htdocs/\S+\.php, with \d+ of \d+ files checked$#', $detail );
+check( 1 === $where, "timeout: detail names the file and how far the scan got, and leaves the hint to EE ($detail)" );
 eq( report( 'timeout' ), $t, 'timeout: report.json equals stdout, no not_checked' );
 
 // ------------------------------------------------------- memory and size bounds

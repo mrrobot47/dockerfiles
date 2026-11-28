@@ -1637,7 +1637,8 @@ final class Scanner {
 		$done = array_sum( array_column( $this->comps, 'files' ) );
 		$all  = $this->listedFiles + $this->dataFiles;
 		$at   = clean_text( $this->relMount( $path ) );
-		$text = 'timed out after %d s at %s, with %d of %d files checked; run it again with a longer --timeout';
+		// No hint to run it again: EE adds its own.
+		$text = 'timed out after %d s at %s, with %d of %d files checked';
 		return new TimedOut( sprintf( $text, $this->timeoutLabel, $at, $done, $all ) );
 	}
 
