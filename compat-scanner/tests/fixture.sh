@@ -1043,3 +1043,28 @@ history_fixture() {
 	printf '#!/bin/sh\nset -e\necho "<?php require \"boot.php\";" > "$1/index.php"\n' > "$1/htdocs/deploy.sh"
 	chmod -R a+rX "$1"
 }
+
+# native_fixture <app-dir>: global functions named like ones PHP added in 8.4, 8.5 and 8.6, unguarded, guarded, in a
+# namespace or as a method; and declarations fatal on every version (a built-in, a function declared twice).
+native_fixture() {
+	local p="$1/htdocs/wp-content/plugins/p"
+	wp_core "$1/htdocs" 6.8.3
+	php_file "$p/p.php" '/* Plugin Name: P */'
+	php_file "$p/find.php" 'function array_find( $a, $f ) { return null; }'
+	php_file "$p/first.php" 'if ( function_exists( "array_first" ) ) { return; }
+function Array_First( $a ) { return null; }'
+	php_file "$p/clamp.php" 'function clamp( $v, $min, $max ) { return $v; }'
+	php_file "$p/guarded.php" 'if ( ! function_exists( "array_last" ) ) {
+	function array_last( $a ) { return null; }
+}'
+	php_file "$p/alt.php" 'if ( ! function_exists( "array_last" ) ) :
+	function array_last( $a ) { return null; }
+endif;'
+	php_file "$p/ns.php" 'namespace P;
+function array_first( $a ) { return null; }'
+	php_file "$p/method.php" 'class C { function array_first( $a ) { return null; } }'
+	php_file "$p/strlen.php" 'function strlen( $s ) { return 0; }'
+	php_file "$p/twice.php" 'function p_twice() {}
+function p_twice() {}'
+	chmod -R a+rX "$1"
+}

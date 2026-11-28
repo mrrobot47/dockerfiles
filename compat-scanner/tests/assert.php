@@ -952,6 +952,23 @@ eq(
 );
 $broken = nc( 'plugin', 'p', null, 'views/broken.tpl', 'unparseable' );
 eq( $li['not_checked'] ?? null, [ $broken ], 'lint: text before the tag isn\'t linted; PHPCS can\'t parse it' );
+// A function PHP adds is fatal to declare from that version on: by the lint up to the scanner's PHP, by a sniff above it.
+$lint     = 'CompatScanner.Syntax.ParseError';
+$sniff    = 'CompatScanner.Functions.NativeDeclared.Found';
+$always   = [ "strlen.php:$lint", "twice.php:$lint" ];
+$by_ver   = [
+	'8.3' => $always,
+	'8.4' => array_merge( [ "find.php:$lint" ], $always ),
+	'8.5' => array_merge( [ "find.php:$lint", "first.php:$sniff" ], $always ),
+	'8.6' => array_merge( [ "clamp.php:$sniff", "find.php:$lint", "first.php:$sniff" ], $always ),
+];
+foreach ( $by_ver as $v => $want ) {
+	$r   = report( "native-$v" );
+	$got = array_map( static function ( $f ) { return $f['file'] . ':' . $f['source']; }, comp_of( $r, 'plugin', 'p' )['findings'] ?? [] );
+	sort( $got );
+	eq( [ $got, $r['not_checked'] ?? null ], [ $want, [] ], "native-$v: functions native in the target only; guarded, namespaced and methods aren't" );
+}
+
 foreach ( [ 'history', 'history-83' ] as $name ) {
 	$quoted = [ counts( $name ), report( $name )['not_checked'] ?? null ];
 	eq( $quoted, [ [ 'ok', true, 0, 3, 0 ], [] ], "$name: a shell history and a script quoting <?php are no entry" );

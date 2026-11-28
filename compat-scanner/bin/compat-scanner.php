@@ -21,6 +21,8 @@ const TOOL_DIR        = '/opt/compat-scanner';
 const PHPCS_BIN       = TOOL_DIR . '/vendor/squizlabs/php_codesniffer/bin/phpcs';
 const REPORT_CLASS    = TOOL_DIR . '/src/LinesReport.php';
 const CALIBRATION_DIR = TOOL_DIR . '/calibration';
+// The scanner's own PHPCS checks, added to PHPCompatibility's.
+const SNIFFS_DIR      = TOOL_DIR . '/src/CompatScanner';
 const JSON_FLAGS      = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
 // Walked only for code names (see skipped()), and only in the WordPress root's own wp-content for TOP_SKIPS.
 // upgrade-temp-backup: WordPress' rollback copies of updated plugins and themes (6.3+).
@@ -2142,7 +2144,7 @@ final class Scanner {
 		$cmd = [
 			PHP_BINARY, '-d', 'memory_limit=' . $memory, '-d', 'display_errors=stderr', '-d', 'log_errors=0',
 			PHPCS_BIN,
-			'--standard=' . ( 'php' === $this->cfg['site_type'] ? 'PHPCompatibility' : 'PHPCompatibilityWP' ),
+			'--standard=' . ( 'php' === $this->cfg['site_type'] ? 'PHPCompatibility' : 'PHPCompatibilityWP' ) . ',' . SNIFFS_DIR,
 			'--runtime-set', 'testVersion', $this->cfg['version'],
 			'--extensions=' . implode( ',', CODE_EXTENSIONS ), '--no-cache', '-q', '--no-colors', '--ignore-annotations',
 			'--report=' . REPORT_CLASS, '--report-file=' . $report,
@@ -2237,8 +2239,9 @@ final class Scanner {
 			if ( $res['timeout'] ) {
 				throw $this->timedOutAt( $batch[ $k ]['path'] );
 			}
-			if ( 0 !== $res['rc'] ) {
-				$failed[ $k ] = $this->lintResult( $res, $real );
+			$result = 0 === $res['rc'] ? null : $this->lintResult( $res, $real );
+			if ( null !== $result ) {
+				$failed[ $k ] = $result;
 			}
 		}
 		return $failed;
@@ -2255,7 +2258,10 @@ final class Scanner {
 		return $res;
 	}
 
-	/** @return array{0:int,1:string}|string The finding, or `unparseable` for a target newer than this PHP, which can't parse its syntax. */
+	/**
+	 * @return array{0:int,1:string}|string|null The finding, `unparseable` for a target newer than this PHP, which can't
+	 *                                           parse its syntax, or null when only this PHP's own functions clash.
+	 */
 	private function lintResult( array $res, string $real ) {
 		if ( $res['capped'] ) {
 			return 'timeout';
@@ -2266,10 +2272,19 @@ final class Scanner {
 		if ( 255 !== $res['rc'] ) {
 			return 'error';
 		}
-		if ( version_compare( $this->cfg['version'], PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION, '>' ) ) {
+		$text = trim( str_replace( ' in ' . $real, '', $res['stderr'] ) );
+		// A redeclared function parsed, so it is a finding on any target, unless it clashes only with a function PHP added
+		// after the target (PHPCS still checks the file then).
+		if ( preg_match( '/^Fatal error: Cannot redeclare (?:function )?(\w+)\(\)(.*)$/s', $text, $m ) ) {
+			$native = 0 === strpos( $m[2], ' on line ' );
+			$since  = $native ? ( native_since()[ strtolower( $m[1] ) ] ?? null ) : null;
+			if ( null !== $since && version_compare( $this->cfg['version'], $since, '<' ) ) {
+				return null;
+			}
+		} elseif ( version_compare( $this->cfg['version'], PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION, '>' ) ) {
 			return 'unparseable';
 		}
-		preg_match( '/^(.*?)(?: on line (\d+))?$/s', trim( str_replace( ' in ' . $real, '', $res['stderr'] ) ), $m );
+		preg_match( '/^(.*?)(?: on line (\d+))?$/s', $text, $m );
 		return [ (int) ( $m[2] ?? 0 ), $m[1] ];
 	}
 
@@ -2787,6 +2802,13 @@ function lines( $fh ): Generator {
 	if ( $long ) {
 		yield null;
 	}
+}
+
+/** @return array<string,string> Functions PHP added since 8.1, by version, as the scanner's PHPCS sniff reads them too. */
+function native_since(): array {
+	static $since = null;
+	$since = $since ?? require TOOL_DIR . '/src/native-functions.php';
+	return $since;
 }
 
 /** major.minor of a WordPress version, as EE's support table names branches. */

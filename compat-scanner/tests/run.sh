@@ -412,6 +412,8 @@ OLD_CALL=1 scan phar-oldcall "$WORK/phar-info" wp /var/www/htdocs 8.4 600
 # The syntax lint: PHP 8 parse errors PHPCompatibility misses; above the scanner's PHP, unparseable instead.
 lint_fixture "$WORK/lint"
 history_fixture "$WORK/history"
+native_fixture "$WORK/native"
+for v in 8.3 8.4 8.5 8.6; do scan "native-$v" "$WORK/native" wp /var/www/htdocs "$v" 600; done
 scan history "$WORK/history" wp /var/www/htdocs 8.4 600
 scan history-83 "$WORK/history" wp /var/www/htdocs 8.3 600
 scan lint "$WORK/lint" wp /var/www/htdocs 8.4 600

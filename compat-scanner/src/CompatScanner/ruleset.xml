@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<ruleset name="CompatScanner" namespace="CompatScanner">
+	<description>Checks of the compat-scanner image that PHPCompatibility doesn't make.</description>
+</ruleset>
