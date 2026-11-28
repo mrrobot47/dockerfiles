@@ -880,7 +880,8 @@ mountcore_fixture() {
 	chmod -R a+rX "$1" "$1-61"
 }
 
-# wpquotes_fixture <app-dir>: version.php in either quote style; a double-quoted value PHP would expand stays unknown.
+# wpquotes_fixture <app-dir>: version.php in either quote style; a double-quoted value PHP would expand, or one over 64
+# characters, stays unknown.
 wpquotes_fixture() {
 	local a=$1
 	wp_core "$a/htdocs" 6.8.3
@@ -890,6 +891,9 @@ wpquotes_fixture() {
 	php_file "$a/dollar/wp-includes/version.php" '$wp_version = "6.8.$x";'
 	wp_core "$a/brace" 6.8.1
 	php_file "$a/brace/wp-includes/version.php" '$wp_version = "6.8.{$x}";'
+	# 64 characters is the longest version kept; one more is unknown.
+	wp_core "$a/max" "6.8.$(printf 'a%.0s' {1..60})"
+	wp_core "$a/long" "6.8.$(printf 'a%.0s' {1..61})"
 	chmod -R a+rX "$a"
 }
 

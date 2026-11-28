@@ -860,9 +860,15 @@ eq( [ counts( 'phpwpcore' ), installs( 'phpwpcore' ) ], [ [ 'ok', true, 0, 2, 0 
 eq( [ counts( 'phpwpcore-old' ), report( 'phpwpcore-old' )['not_checked'] ?? null ], [ [ 'ok', null, 0, 2, 1 ], [ nc( 'directory', 'htdocs/blog', null, './', 'nested_wordpress' ) ] ], 'phpwpcore-old: without a supported branch, nested_wordpress' );
 eq( [ counts( 'oldcall-php' ), array_key_exists( 'phars', report( 'oldcall-php' ) ) ], [ [ 'ok', null, 0, 2, 1 ], false ], 'oldcall-php: a v3.11.1 call on a php site' );
 eq( [ counts( 'mountcore' ), installs( 'mountcore' ) ], [ [ 'ok', true, 0, 1, 0 ], [ '/var/www/htdocs 6.1.1 live' ] ], 'mountcore: the version is read where PHP reads it, through a mount over wp-includes' );
-$quote_installs = [ '/var/www/htdocs 6.8.3 live', '/var/www/brace ', '/var/www/dollar ', '/var/www/single 6.9.1' ];
-eq( installs( 'wpquotes' ), $quote_installs, 'wpquotes: either quote style; a value with $ or { unknown' );
-$unknown_cores = [ nc( 'directory', 'brace', null, './', 'nested_wordpress' ), nc( 'directory', 'dollar', null, './', 'nested_wordpress' ) ];
+$max            = '6.8.' . str_repeat( 'a', 60 );
+$quote_installs = [ '/var/www/htdocs 6.8.3 live', '/var/www/brace ', '/var/www/dollar ', '/var/www/long ', "/var/www/max $max" ];
+$quote_installs[] = '/var/www/single 6.9.1';
+eq( installs( 'wpquotes' ), $quote_installs, 'wpquotes: either quote style; a value with $ or {, or over 64 characters, unknown' );
+$unknown_cores = [
+	nc( 'directory', 'brace', null, './', 'nested_wordpress' ),
+	nc( 'directory', 'dollar', null, './', 'nested_wordpress' ),
+	nc( 'directory', 'long', null, './', 'nested_wordpress' ),
+];
 eq( report( 'wpquotes' )['not_checked'] ?? null, $unknown_cores, 'wpquotes: an unknown version is never a supported branch' );
 
 eq( [ counts( 'wpold-served' ), report( 'wpold-served' )['excluded_old_releases'] ?? null ], [ [ 'ok', true, 0, 1, 0 ], [ '/var/www/htdocs/releases/1', '/var/www/htdocs/releases/2' ] ], 'wpold-served: nginx serves current: the old releases are left out' );
