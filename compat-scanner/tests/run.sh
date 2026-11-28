@@ -317,8 +317,8 @@ scan untrav "$WORK/untrav" wp /var/www/htdocs 8.4 600
 OLD_CALL=1 ENTRY_MEMORY=10M scan pharflood "$WORK/pharflood" wp /var/www/htdocs 8.4 600
 ENTRY_MEMORY=10M scan pharflood-info "$WORK/pharflood" wp /var/www/htdocs 8.4 600
 
-# r7: links into old releases and core are entries; links leaving /var/www by non-asset names; php home dot dirs (dot
-# links, dirs uid 33 can't open, links that don't resolve, their own time budget); the per-file cap; the STDIN copy cap.
+# Links into old releases and core are entries; links leaving /var/www by non-asset names; php home dot dirs (dot links,
+# dirs uid 33 can't open, links that don't resolve); the per-file cap; the STDIN copy cap.
 oldlink_fixture "$WORK/oldlink"
 corelink_fixture "$WORK/corelink"
 phphome_fixture "$WORK/phphome"

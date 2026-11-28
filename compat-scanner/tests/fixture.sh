@@ -344,7 +344,7 @@ each( \$a );"
 	ln -s ../../vendor/acme/plug-v "$wc/plugins/plug-v"
 	ln -s ../../shared/theme-in "$wc/themes/theme-in"
 	ln -s ../../shared/mu-link.php "$wc/mu-plugins/mu-link.php"
-	# Links into the root's core are unreadable entries (r7); into another install's core, its nested_wordpress entry.
+	# Links into the root's core are unreadable entries; into another install's core, its nested_wordpress entry.
 	ln -s ../wp-includes "$wc/inc"
 	ln -s ../wp/wp-load.php "$wc/load.php"
 	ln -s ../wp-includes/version.php "$wc/core-version.php"

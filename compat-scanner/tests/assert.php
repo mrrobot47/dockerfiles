@@ -743,7 +743,7 @@ eq( [ $bk['status'] ?? null, field( $bk, 'safe_to_upgrade' ), $bk['errors'] ?? n
 eq( json_decode( raw( 'bak.manifest.json' ), true )['checked'] ?? null, [ '/var/www/htdocs/wp-config.php', '/var/www/htdocs/wp-content/themes/t/functions.php' ], 'bak: only the code files checked' );
 eq( [ out( 'nomanifest' )['status'] ?? null, trim( raw( 'nomanifest.outdir' ) ) ], [ 'ok', './report.json' ], 'nomanifest: without COMPAT_MANIFEST, /out holds only report.json' );
 
-// r7: a link into an old release or the root's core is an entry by the link's own path (a release pointer beside
+// A link into an old release or the root's core is an entry by the link's own path (a release pointer beside
 // current, and a non-code file link, aren't); php home dot dirs; the per-file cap; the STDIN copy cap.
 $ol = out( 'oldlink' );
 eq( [ $ol['status'] ?? null, field( $ol, 'safe_to_upgrade' ), $ol['files_checked'] ?? null, $ol['files_not_checked'] ?? null ], [ 'ok', null, 1, 5 ], 'oldlink: links into an old release give no verdict' );
@@ -820,6 +820,10 @@ eq( json_decode( raw( 'wpcfg-parent.manifest.json' ), true )['checked'] ?? null,
 $m = json_decode( raw( 'php-rel.manifest.json' ), true );
 eq( [ $m['old_releases'] ?? null, $m['roots'] ?? null ], [ [ '/var/www/htdocs/releases/1/' ], [ '/var/www/' ] ], 'manifest: php old releases and root' );
 eq( report( 'php-rel' )['excluded_old_releases'] ?? null, [ '/var/www/htdocs/releases/1' ], 'php-rel: the old release in the report' );
+$keys = [ 'v', 'status', 'site', 'target', 'safe_to_upgrade', 'errors', 'warnings', 'files_checked', 'files_not_checked', 'php_bytes' ];
+$keys = array_merge( $keys, [ 'components_checked', 'components_with_errors', 'duration_s', 'tool', 'components', 'not_checked' ] );
+$keys = array_merge( $keys, [ 'wordpress_installs', 'excluded_old_releases', 'phars', 'phar_named_by' ] );
+eq( array_keys( report( 'php-rel' ) ), $keys, 'php-rel: report key order with COMPAT_SERVED set' );
 $m = json_decode( raw( 'full.manifest.json' ), true );
 eq( $m['core']['roots'] ?? null, [ '/var/www/htdocs/releases/1/' ], 'manifest: core root is the resolved WordPress root' );
 check( ! preg_grep( '#/releases/1/(wp-includes/|wp-settings\.php$)#', $m['checked'] ?? [] ), 'manifest: root core is never checked' );
