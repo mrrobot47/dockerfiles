@@ -170,6 +170,8 @@ scan wpcfg-parent "$WORK/wpcfg-parent" wp /var/www/htdocs 8.4 600
 scan php-rel "$WORK/php-rel" php /var/www/htdocs/current/public 8.4 600
 estimate est-php-rel "$WORK/php-rel" php /var/www/htdocs/current/public 8.4
 scan php-rel-link "$WORK/php-rel-link" php /var/www/htdocs/current/public 8.4 600
+relshared_fixture "$WORK/relshared"
+scan relshared "$WORK/relshared" php /var/www/htdocs/current/public 8.4 600
 
 # A deploy re-points current mid-scan: no verdict. A file that grows before its batch: checked as it is now.
 during switch switch_release "$WORK/switch"

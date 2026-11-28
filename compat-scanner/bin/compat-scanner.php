@@ -570,12 +570,16 @@ final class Scanner {
 			if ( is_link( $releases ) || ! is_dir( $releases ) || ! $this->inside( $releases ) || dirname( $live ) !== $releases ) {
 				return [];
 			}
-			// A release holding the scan path is walked: EE's WordPress hint may name an old one (a stale wp-cli.yml path).
-			$scan = realpath( $this->cfg['path'] ) . '/';
-			$old  = [];
+			// An old release holds what the live one serves (its index.php, else the served dir), so a shared/ dir is walked;
+			// so is a release holding the scan path, which EE's WordPress hint may name (a stale wp-cli.yml path).
+			$served = substr( $publicDir, strlen( $path ) );
+			$marker = $served . ( is_file( $live . $served . '/index.php' ) ? '/index.php' : '' );
+			$scan   = realpath( $this->cfg['path'] ) . '/';
+			$old    = [];
 			foreach ( (array) $this->readDir( $releases ) as $name ) {
-				$dir = $releases . '/' . $name;
-				if ( $dir !== $live && ! is_link( $dir ) && is_dir( $dir ) && 0 !== strpos( $scan, $dir . '/' ) ) {
+				$dir     = $releases . '/' . $name;
+				$release = ! is_link( $dir ) && is_dir( $dir ) && file_exists( $dir . $marker );
+				if ( $dir !== $live && $release && 0 !== strpos( $scan, $dir . '/' ) ) {
 					$old[] = $dir;
 				}
 			}

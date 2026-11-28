@@ -315,6 +315,10 @@ eq(
 $e = out( 'est-php-rel' );
 eq( [ $e['php_files'] ?? null, $e['php_bytes'] ?? null, $e['components'] ?? null ], [ $pr['files_checked'] + $pr['files_not_checked'], $pr['php_bytes'] ?? null, $pr['components_checked'] ?? null ], 'est-php-rel: counts equal the scan' );
 eq( [ out( 'php-rel-link' )['errors'] ?? null ], [ 3 ], 'php-rel-link: symlinked releases/ is not the layout, every release scanned' );
+$rs = report( 'relshared' );
+$rs_want = [ [ 'ok', false, 1, 2, 0 ], [ '/var/www/htdocs/releases/4' ] ];
+eq( [ counts( 'relshared' ), $rs['excluded_old_releases'] ?? null ], $rs_want, 'relshared: only a dir holding the served index.php is old' );
+eq( finding_files( $rs ), [ 'directory:releases::shared/lib.php' ], 'relshared: shared/ in releases/ is scanned' );
 
 // --------------------------------------------------------------- php site
 

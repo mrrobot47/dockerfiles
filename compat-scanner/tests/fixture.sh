@@ -262,6 +262,7 @@ php_release_fixture() {
 	[ "$kind" = link ] && store="$h/release-store"
 	php_file "$h/index.php" '// front controller'
 	php_file "$store/1/app.php" 'each( $a );'
+	php_file "$store/1/public/index.php" 'require "../app.php";'
 	php_file "$store/2/app.php" 'each( $a );'
 	php_file "$store/2/public/index.php" 'require "../app.php";'
 	php_file "$store/hook.php" '// deploy hook'
@@ -727,6 +728,7 @@ oldlink_fixture() {
 	php_file "$h/releases/1/vendor/autoload.php" '$f = create_function( "", "" );'
 	php_file "$h/releases/1/h.php" 'each( $a );'
 	php_file "$h/releases/1/lib/l.php" 'each( $a );'
+	php_file "$h/releases/1/public/index.php" 'require "../vendor/autoload.php";'
 	printf 'notes\n' > "$h/releases/1/notes.txt"
 	php_file "$h/releases/2/public/index.php" 'require "../vendor/autoload.php";'
 	ln -s /var/www/htdocs/releases/1/vendor "$h/releases/2/vendor"
@@ -1066,5 +1068,16 @@ function array_first( $a ) { return null; }'
 	php_file "$p/strlen.php" 'function strlen( $s ) { return 0; }'
 	php_file "$p/twice.php" 'function p_twice() {}
 function p_twice() {}'
+	chmod -R a+rX "$1"
+}
+
+# relshared_fixture <app-dir>: a php CI/CD site, htdocs/current -> releases/5, with a shared/ dir kept in releases/ that
+# the live release requires; releases/4 is an old release.
+relshared_fixture() {
+	local r="$1/htdocs/releases"
+	php_file "$r/5/public/index.php" 'require __DIR__ . "/../../shared/lib.php";'
+	php_file "$r/4/public/index.php" 'each( $a );'
+	php_file "$r/shared/lib.php" 'each( $a );'
+	ln -s releases/5 "$1/htdocs/current"
 	chmod -R a+rX "$1"
 }
