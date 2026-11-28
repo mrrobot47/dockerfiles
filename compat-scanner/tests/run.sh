@@ -380,6 +380,10 @@ scan require "$WORK/require" wp /var/www/htdocs 8.4 600 \
 longline_fixture "$WORK/longline"
 ENTRY_MEMORY=32M scan longline "$WORK/longline" php /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.8
 
+# Each line style of a .user.ini PHP reads.
+userini_fixture "$WORK/userini"
+scan userini "$WORK/userini" php /var/www/htdocs 8.4 600
+
 # Phars are information unless scanned code names one (in any case, also across a 64 KiB read).
 phar_fixture "$WORK/phar-info" none
 phar_fixture "$WORK/phar-named" named

@@ -905,6 +905,13 @@ $long_nc = [
 eq( report( 'longline' )['not_checked'] ?? null, $long_nc, 'longline: a .user.ini with such a line is an entry, also one ending at the buffer end' );
 eq( installs( 'longline' ), [ '/var/www/htdocs/blog ' ], 'longline: a version.php line too long to read is an unknown version' );
 
+$styles = [ 'bom', 'cr', 'crlf', 'plain', 'section' ];
+$pre    = array_map( static function ( $d ) { return "/var/www/htdocs/$d/pre.txt"; }, $styles );
+eq( counts( 'userini' ), [ 'ok', null, 0, 1, 6 ], 'userini: every prepend target is unread' );
+$ui = report( 'userini' )['not_checked'] ?? [];
+eq( $ui[0] ?? null, nc( 'other', '', null, '/var/www/htdocs/sjis/.user.ini', 'unreadable' ), 'userini: a source encoding set is an entry; switched off, none' );
+eq( array_column( array_slice( $ui, 1 ), 'file' ), $pre, 'userini: a BOM, a bare CR, CRLF and `[section] key=` read as by PHP' );
+
 foreach ( [ 'phar-info' => null, 'phar-named' => 'boot.php', 'phar-upper' => 'boot.php', 'phar-split' => 'boot.php' ] as $name => $by ) {
 	$r     = report( $name );
 	$phars = [ '/var/www/htdocs/wp-content/plugins/p/lib.phar', '/var/www/htdocs/wp-cli.phar' ];

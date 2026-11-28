@@ -981,3 +981,21 @@ longline_fixture() {
 	truncate -s 64M "$h/blog/wp-includes/version.php"
 	chmod -R a+rX "$1"
 }
+
+# userini_fixture <app-dir>: a php site with one .user.ini per line style PHP reads (plain, BOM, CR only, CRLF, a
+# section on the same line), each prepending a text file the scan doesn't read, and two setting the source encoding.
+userini_fixture() {
+	local h="$1/htdocs" d
+	php_file "$h/index.php" 'echo 1;'
+	for d in plain bom cr crlf section; do mkdir -p "$h/$d" && printf 'notes\n' > "$h/$d/pre.txt"; done
+	printf 'auto_prepend_file = /var/www/htdocs/plain/pre.txt\n' > "$h/plain/.user.ini"
+	printf '\xEF\xBB\xBFauto_prepend_file = /var/www/htdocs/bom/pre.txt\n' > "$h/bom/.user.ini"
+	printf '; WAF\rauto_prepend_file = /var/www/htdocs/cr/pre.txt\r' > "$h/cr/.user.ini"
+	printf '; WAF\r\nauto_prepend_file = /var/www/htdocs/crlf/pre.txt\r\n' > "$h/crlf/.user.ini"
+	printf '[PHP] auto_prepend_file = /var/www/htdocs/section/pre.txt\n' > "$h/section/.user.ini"
+	# The source encoding PHP reads with: set in one, switched off in the other.
+	mkdir -p "$h/sjis" "$h/off"
+	printf 'zend.multibyte = On\nzend.script_encoding = SJIS\n' > "$h/sjis/.user.ini"
+	printf 'zend.multibyte = 0\nzend.script_encoding = none\n' > "$h/off/.user.ini"
+	chmod -R a+rX "$1"
+}

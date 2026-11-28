@@ -249,20 +249,35 @@ final class Scanner {
 	}
 
 	/**
-	 * Collects a .user.ini's auto_prepend_file and auto_append_file values. A line too long to read makes the file itself
-	 * an unreadable entry, as EE does for its ini files.
+	 * Collects a .user.ini's auto_prepend_file and auto_append_file values. A line too long to read, or zend.multibyte or
+	 * zend.script_encoding (PHP then reads the code in another encoding than PHPCS), makes the file itself an unreadable
+	 * entry, as EE does for its ini files.
 	 */
 	private function userIni( string $path, string $real ): void {
 		$fh = open_regular( $real );
 		if ( null === $fh ) {
 			return;
 		}
+		$keys   = '(auto_(?:prepend|append)_file|zend\.multibyte|zend\.script_encoding)';
 		$unsure = false;
-		foreach ( lines( $fh ) as $line ) {
+		foreach ( lines( $fh ) as $n => $line ) {
 			if ( null === $line ) {
 				$unsure = true;
-			} elseif ( preg_match( '/^\s*auto_(?:prepend|append)_file\s*=(.*)$/i', $line, $m ) && '' !== ini_value( $m[1] ) ) {
-				$this->required[] = ini_value( $m[1] );
+				continue;
+			}
+			// As PHP's ini scanner reads it: a BOM first, a bare \r ends a line, `[section] key=` on one line.
+			$line = 0 === $n ? (string) preg_replace( '/^\xEF\xBB\xBF/', '', $line ) : $line;
+			foreach ( explode( "\r", $line ) as $part ) {
+				$value = preg_match( '/^\s*(?:\[[^\]]*\]\s*)*' . $keys . '\s*=(.*)$/i', $part, $m ) ? ini_value( $m[2] ) : '';
+				$key   = strtolower( $m[1] ?? '' );
+				if ( '' === $value || ( 'zend.multibyte' === $key && '0' === $value ) ) {
+					continue;
+				}
+				if ( 0 === strpos( $key, 'auto_' ) ) {
+					$this->required[] = $value;
+				} else {
+					$unsure = true;
+				}
 			}
 		}
 		fclose( $fh );
