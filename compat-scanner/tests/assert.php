@@ -950,7 +950,12 @@ eq(
 	[ 'attr.php:3:CompatScanner.Syntax.ParseError', 'pipe.php:2:CompatScanner.Syntax.ParseError', 'unclosed.php:3:CompatScanner.Syntax.ParseError' ],
 	'lint: `#[` before code, the pipe operator and an unclosed comment fail on 8.4; an <?xml template and two files declaring one function don\'t'
 );
-eq( $li['not_checked'] ?? null, [ nc( 'plugin', 'p', null, 'views/broken.tpl', 'php_tag' ) ], 'lint: a parse error after other text is php_tag' );
+$broken = nc( 'plugin', 'p', null, 'views/broken.tpl', 'unparseable' );
+eq( $li['not_checked'] ?? null, [ $broken ], 'lint: text before the tag isn\'t linted; PHPCS can\'t parse it' );
+foreach ( [ 'history', 'history-83' ] as $name ) {
+	$quoted = [ counts( $name ), report( $name )['not_checked'] ?? null ];
+	eq( $quoted, [ [ 'ok', true, 0, 3, 0 ], [] ], "$name: a shell history and a script quoting <?php are no entry" );
+}
 eq( [ counts( 'lint-85' ), array_column( report( 'lint-85' )['not_checked'] ?? [], 'reason' ) ], [ [ 'ok', null, 0, 4, 4 ], [ 'unparseable', 'unparseable', 'unparseable', 'unparseable' ] ], 'lint-85: above the scanner\'s PHP a lint failure is unparseable, not an error' );
 $l74 = report( 'lint-74' );
 $l74sources = array_column( comp_of( $l74, 'plugin', 'p' )['findings'] ?? [], 'source' );

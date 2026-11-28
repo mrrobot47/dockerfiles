@@ -1733,13 +1733,10 @@ final class Scanner {
 		return new ToolError( sprintf( 'report larger than %d bytes', $this->cfg['report_max'] ) );
 	}
 
-	/** A file the lint failed, not run through PHPCS: an ERROR finding, or a not_checked reason (php_tag in a mixed file). */
+	/** A file the lint failed, not run through PHPCS: an ERROR finding, or a not_checked reason. */
 	private function recordLint( array $f ): void {
 		$rel    = $this->rel( $f['comp'], $f['path'] );
 		$reason = $f['lint'];
-		if ( is_array( $reason ) && $f['mixed'] ) {
-			$reason = 'php_tag';
-		}
 		if ( is_string( $reason ) ) {
 			$this->spoolNotChecked( $f['comp'], $rel, $reason, $f['real'] );
 			return;
@@ -2214,14 +2211,19 @@ final class Scanner {
 	}
 
 	/**
-	 * `php -l` over a batch, then over each file on its own when the batch fails, since PHPCompatibility misses some parse
-	 * errors (`#[` before PHP 8 code, an unclosed final comment). Targets before 8.0 aren't linted: PHP 8.4 rejects
-	 * syntax they allow.
+	 * `php -l` over a batch, then each file on its own when it fails: PHPCompatibility misses some parse errors (`#[`
+	 * before PHP 8, an unclosed final comment). Not for targets before 8.0, whose syntax PHP 8.4 rejects, nor for files
+	 * with text before their tag (a script or shell history quoting `<?php`), which PHPCS alone checks.
 	 *
 	 * @return array<int,array{0:int,1:string}|string> By batch key, the files that fail: [ line, message ] or a not_checked reason.
 	 */
 	private function lint( array $batch ): array {
-		$paths = array_filter( array_column( $batch, 'real' ) );
+		$paths = [];
+		foreach ( $batch as $k => $f ) {
+			if ( null !== $f['real'] && ! $f['mixed'] ) {
+				$paths[ $k ] = $f['real'];
+			}
+		}
 		if ( ! $paths || version_compare( $this->cfg['version'], '8.0', '<' ) ) {
 			return [];
 		}

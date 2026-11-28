@@ -1033,3 +1033,13 @@ nohtdocs_fixture() {
 	php_file "$1-mnt/y.php" 'each( $a );'
 	chmod -R a+rX "$1" "$1-mnt"
 }
+
+# history_fixture <app-dir>: a WordPress site with text files that quote `<?php` after other text: the www-data shell
+# history `ee shell` leaves in /var/www, and a deploy script.
+history_fixture() {
+	wp_core "$1/htdocs" 6.8.3
+	php_file "$1/htdocs/wp-content/plugins/p/p.php" '/* Plugin Name: P */'
+	printf 'ls\necho "<?php phpinfo();" > info.php\nexit\n' > "$1/.bash_history"
+	printf '#!/bin/sh\nset -e\necho "<?php require \"boot.php\";" > "$1/index.php"\n' > "$1/htdocs/deploy.sh"
+	chmod -R a+rX "$1"
+}
