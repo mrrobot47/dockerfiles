@@ -909,8 +909,13 @@ $styles = [ 'bom', 'cr', 'crlf', 'plain', 'section' ];
 $pre    = array_map( static function ( $d ) { return "/var/www/htdocs/$d/pre.txt"; }, $styles );
 eq( counts( 'userini' ), [ 'ok', null, 0, 1, 6 ], 'userini: every prepend target is unread' );
 $ui = report( 'userini' )['not_checked'] ?? [];
-eq( $ui[0] ?? null, nc( 'other', '', null, '/var/www/htdocs/sjis/.user.ini', 'unreadable' ), 'userini: a source encoding set is an entry; switched off, none' );
+$sjis = nc( 'other', '', null, '/var/www/htdocs/sjis/.user.ini', 'unreadable' );
+eq( $ui[0] ?? null, $sjis, 'userini: a source encoding set is an entry; switched off, none' );
 eq( array_column( array_slice( $ui, 1 ), 'file' ), $pre, 'userini: a BOM, a bare CR, CRLF and `[section] key=` read as by PHP' );
+
+$ci = [ '/var/www/htdocs/releases/1/boot.php', '/var/www/htdocs/current/wp-admin/waf.php', '/var/www/htdocs/current/blog/wp-includes/boot.php' ];
+eq( counts( 'coreini' ), [ 'ok', null, 0, 1, 3 ], 'coreini: prepend targets in what the walk leaves out give no verdict' );
+eq( array_column( report( 'coreini' )['not_checked'] ?? [], 'file' ), $ci, 'coreini: .user.ini files in an old release and in core are read' );
 
 foreach ( [ 'phar-info' => null, 'phar-named' => 'boot.php', 'phar-upper' => 'boot.php', 'phar-split' => 'boot.php' ] as $name => $by ) {
 	$r     = report( $name );

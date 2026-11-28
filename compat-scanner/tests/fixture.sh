@@ -999,3 +999,18 @@ userini_fixture() {
 	printf 'zend.multibyte = 0\nzend.script_encoding = none\n' > "$h/off/.user.ini"
 	chmod -R a+rX "$1"
 }
+
+# coreini_fixture <app-dir>: a WordPress CI/CD site, htdocs/current -> releases/2, with a .user.ini in the live core, in
+# the core of an install below it and in the old release, each prepending a file there.
+coreini_fixture() {
+	local h="$1/htdocs" r
+	for r in 1 2; do wp_core "$h/releases/$r" 6.8.3 && php_file "$h/releases/$r/index.php" 'echo 1;'; done
+	php_file "$h/releases/2/wp-admin/waf.php" 'each( $a );'
+	printf 'auto_prepend_file = /var/www/htdocs/current/wp-admin/waf.php\n' > "$h/releases/2/wp-admin/.user.ini"
+	wp_core "$h/releases/2/blog" 6.8.1
+	printf 'auto_prepend_file = /var/www/htdocs/current/blog/wp-includes/boot.php\n' > "$h/releases/2/blog/wp-includes/.user.ini"
+	php_file "$h/releases/1/boot.php" 'each( $a );'
+	printf 'auto_prepend_file = /var/www/htdocs/releases/1/boot.php\n' > "$h/releases/1/.user.ini"
+	ln -s releases/2 "$h/current"
+	chmod -R a+rX "$1"
+}

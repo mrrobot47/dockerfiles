@@ -384,6 +384,10 @@ ENTRY_MEMORY=32M scan longline "$WORK/longline" php /var/www/htdocs 8.4 600 -e C
 userini_fixture "$WORK/userini"
 scan userini "$WORK/userini" php /var/www/htdocs 8.4 600
 
+# A .user.ini in core or an old release, which the walk leaves out, is still read.
+coreini_fixture "$WORK/coreini"
+scan coreini "$WORK/coreini" wp /var/www/htdocs/current 8.4 600 -e COMPAT_WP_SUPPORTED=6.8
+
 # Phars are information unless scanned code names one (in any case, also across a 64 KiB read).
 phar_fixture "$WORK/phar-info" none
 phar_fixture "$WORK/phar-named" named

@@ -229,6 +229,10 @@ final class Scanner {
 		foreach ( $this->cfg['extra_roots'] as $root ) {
 			$this->skipped( $root, '.', $this->comp( 'directory', $root, null, $root ) );
 		}
+		// PHP reads a .user.ini for the scripts below it in the directories left out too: core and old releases.
+		foreach ( $this->leftOutDirs() as $dir ) {
+			$this->iniIn( $dir );
+		}
 		$this->checkRequired();
 		$this->judgeInstalls();
 	}
@@ -246,6 +250,43 @@ final class Scanner {
 				$this->notChecked( $other, $target, 'unreadable', $target );
 			}
 		}
+	}
+
+	/** @return string[] Directories the walk leaves out whole: the core dirs of every install met, and the old releases. */
+	private function leftOutDirs(): array {
+		$dirs = $this->oldReleases;
+		foreach ( array_merge( null === $this->live ? [] : [ $this->live ], array_keys( $this->nested ) ) as $install ) {
+			foreach ( CORE_DIRS as $core ) {
+				$dirs[] = $install . '/' . $core;
+			}
+		}
+		return $dirs;
+	}
+
+	/** Reads every .user.ini under a directory, found by name; links to directories aren't followed. */
+	private function iniIn( string $dir ): void {
+		$stack = [ $dir ];
+		while ( $stack ) {
+			$d = array_pop( $stack );
+			foreach ( (array) $this->readDir( $d ) as $name ) {
+				$path = $d . '/' . $name;
+				if ( is_dir( $path ) && ! is_link( $path ) ) {
+					$stack[] = $path;
+				} elseif ( '.user.ini' === $name ) {
+					$this->userIniOnce( $path, (string) @realpath( $path ) );
+				}
+			}
+		}
+	}
+
+	/** userIni() once per file, whichever route reaches it. */
+	private function userIniOnce( string $path, string $real ): void {
+		$st = @stat( $real );
+		if ( false === $st || isset( $this->seenFiles[ $st['dev'] ][ $st['ino'] ] ) ) {
+			return;
+		}
+		$this->seenFiles[ $st['dev'] ][ $st['ino'] ] = 'ini';
+		$this->userIni( $path, $real );
 	}
 
 	/**
@@ -811,7 +852,7 @@ final class Scanner {
 			return;
 		}
 		if ( '.user.ini' === $name ) {
-			$this->userIni( $path, $real );
+			$this->userIniOnce( $path, $real );
 			return;
 		}
 
