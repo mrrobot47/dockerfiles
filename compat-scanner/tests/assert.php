@@ -982,6 +982,9 @@ $l74 = report( 'lint-74' );
 $l74sources = array_column( comp_of( $l74, 'plugin', 'p' )['findings'] ?? [], 'source' );
 eq( [ in_array( 'CompatScanner.Syntax.ParseError', $l74sources, true ), array_column( $l74['not_checked'] ?? [], 'file' ) ], [ false, [ 'views/broken.tpl' ] ], 'lint-74: targets before 8.0 aren\'t linted (broken.tpl is PHPCS\'s own unparseable)' );
 
+$entry = json_decode( raw( 'entrypoint' ), true );
+eq( $entry[2] ?? null, 'memory_limit=2G', 'image: the entrypoint\'s memory limit is above EE\'s container limit' );
+
 tool_error( 'badargs-served', 'bad arguments: COMPAT_SERVED must be', 2, false );
 tool_error( 'badargs-supported', 'bad arguments: COMPAT_WP_SUPPORTED must be', 2, false );
 tool_error( 'badargs-roots', 'bad arguments: COMPAT_EXTRA_ROOTS must be', 2, false );

@@ -28,4 +28,5 @@ COPY bin/ /opt/compat-scanner/bin/
 COPY src/ /opt/compat-scanner/src/
 
 USER 33:33
-ENTRYPOINT ["php", "-d", "memory_limit=256M", "-d", "display_errors=stderr", "/opt/compat-scanner/bin/compat-scanner.php"]
+# Above EE's 1g container limit, so the time limit, not PHP's, ends a scan of millions of files; still a bound elsewhere.
+ENTRYPOINT ["php", "-d", "memory_limit=2G", "-d", "display_errors=stderr", "/opt/compat-scanner/bin/compat-scanner.php"]
