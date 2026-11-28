@@ -94,9 +94,19 @@ final class Scanner {
 	private $rootReal;
 	/** @var array<string,bool> Directories holding WordPress core, by real path. */
 	private $coreDirs = [];
+	/** @var string|null Real path of the scan path when it is a WordPress install: the live root, whose core EE judges. */
+	private $live;
 	/** @var array<string,bool> Other WordPress installs whose core was met (and skipped), by real path. */
 	private $nested = [];
-	/** @var string[] Real paths of the releases a php site's `current` doesn't point to. */
+	/** @var string[] Other installs whose core is left out silently: their branch supports the target. */
+	private $leftOut = [];
+	/** @var array<int,array{dir:string,version:string,live:bool}> */
+	private $installs = [];
+	/** @var string[] Prepend and append values of the .user.ini files met. */
+	private $required = [];
+	/** @var string[] /var/www and COMPAT_EXTRA_ROOTS: what links may resolve into. */
+	private $roots;
+	/** @var string[] Real paths of the releases `current` doesn't point to, when nginx serves through it. */
 	private $oldReleases = [];
 	/** @var array<int,array<int,bool>> Visited directories by device and inode. */
 	private $seenDirs = [];
@@ -117,12 +127,16 @@ final class Scanner {
 	private $dataFiles = 0;
 	/** @var int */
 	private $dataBytes = 0;
+	/** @var int Phars collected, when they may be information (spooled to work/phars in a scan). */
+	private $pharCount = 0;
+	/** @var string|null The first scanned file naming a phar, which makes every phar not_checked. */
+	private $pharNamedBy;
 	/** @var int Listed files PHPCS reads through STDIN, one run each (for the estimate). */
 	private $stdinFiles = 0;
 	/** @var bool Listing the code files found in a skipped directory (where caches keep data-only files). */
 	private $inSkipped = false;
 	/** @var array<string,string> Manifest spools (`checked`, `not_checked`) not yet written, by name. */
-	private $manBuf = [ 'checked' => '', 'not_checked' => '' ];
+	private $manBuf = [ 'checked' => '', 'not_checked' => '', 'information' => '' ];
 	/** @var string[] Real paths (with `/`) of the directories searched by name only, where nothing is sniffed. */
 	private $skippedDirs = [];
 
@@ -138,6 +152,7 @@ final class Scanner {
 	public function __construct( array $cfg ) {
 		$this->cfg    = $cfg;
 		$this->isScan = 'scan' === $cfg['mode'];
+		$this->roots  = array_merge( [ MOUNT_ROOT ], $cfg['extra_roots'] );
 		$this->start  = microtime( true );
 		$limit        = $this->isScan ? $cfg['timeout'] : $cfg['estimate_timeout'];
 
@@ -161,7 +176,8 @@ final class Scanner {
 		}
 		$this->listFiles();
 
-		if ( 0 === $this->listedFiles && 0 === $this->notCheckedCount && 0 === $this->dataFiles ) {
+		// WordPress core is code too: its version must reach EE.
+		if ( 0 === $this->listedFiles && 0 === $this->notCheckedCount && 0 === $this->dataFiles && 0 === $this->pharCount && ! $this->installs ) {
 			$this->removeWork();
 			return $this->reduced( 'no_code_found' );
 		}
@@ -176,38 +192,113 @@ final class Scanner {
 
 	// ---------------------------------------------------------------- listing
 
-	/**
-	 * Lists the files in scope. For WordPress, plugins, themes and mu-plugins of
-	 * every content root are walked before anything else, so a directory reached
-	 * both from there and through another path belongs to the component; the rest
-	 * of the WordPress directory (everything but core) comes last.
-	 */
+	/** Lists the files in scope: the site's root (WordPress or htdocs) first, then the rest of /var/www. */
 	private function listFiles(): void {
 		$this->pins[ $this->cfg['path'] ] = @realpath( $this->cfg['path'] );
+		$served = $this->servedPath();
+		if ( '' !== $served ) {
+			$this->pins[ $served ] = realpath( $served );
+			$this->oldReleases     = $this->oldReleases( $served );
+		}
 		if ( 'php' === $this->cfg['site_type'] ) {
 			$root = MOUNT_ROOT . '/htdocs';
 			if ( ! $this->enterRoot( $root ) ) {
 				return;
 			}
-			$this->rootReal    = $this->contentReal;
-			$this->oldReleases = $this->oldReleases( $this->cfg['path'] );
-			$other             = $this->comp( 'other', '', null, $root );
-			$entries           = $this->readDir( $root );
+			$this->rootReal = $this->contentReal;
+			$other          = $this->comp( 'other', '', null, $root );
+			$entries        = $this->readDir( $root );
 			if ( null === $entries ) {
 				$this->notChecked( $other, './', 'unreadable' );
 				return;
 			}
 			$this->scanTop( $root, $entries, $other, '' );
-			$this->scanBeside();
-			return;
+			$this->scanBeside( $this->comp( 'directory', '..', null, MOUNT_ROOT ), '../' );
+		} else {
+			$top = $this->wpDir( $this->cfg['path'] );
+			if ( null !== $top ) {
+				$this->live = $this->coreDir( $this->rootReal ) ? $this->rootReal : null;
+				$this->wpTree( $this->cfg['path'], $top );
+			}
+			$this->scanBeside( $this->comp( 'directory', '', null, MOUNT_ROOT ), '' );
 		}
+		// Directories the php container mounts outside /var/www: searched by name, after /var/www so a link into one
+		// keeps its own component.
+		foreach ( $this->cfg['extra_roots'] as $root ) {
+			$this->skipped( $root, '.', $this->comp( 'directory', $root, null, $root ) );
+		}
+		$this->checkRequired();
+		$this->judgeInstalls();
+	}
 
-		$wp   = $this->cfg['path'];
-		$top  = $this->wpDir( $wp );
-		$root = $wp . '/wp-content';
-		if ( null === $top ) {
+	/**
+	 * Files PHP loads before or after every script (COMPAT_REQUIRE from EE's ini files, and every .user.ini's): each
+	 * must be a file the scan reads, else it is unreadable, naming the value. Nothing is scanned for them.
+	 */
+	private function checkRequired(): void {
+		$other = $this->comp( 'other', '', null, MOUNT_ROOT );
+		foreach ( array_unique( array_merge( $this->cfg['require'], $this->required ) ) as $target ) {
+			$st   = '/' === $target[0] && is_file( $target ) ? stat( $target ) : false;
+			$seen = false === $st ? null : ( $this->seenFiles[ $st['dev'] ][ $st['ino'] ] ?? null );
+			if ( true !== $seen && 'm' !== $seen ) {
+				$this->notChecked( $other, $target, 'unreadable', $target );
+			}
+		}
+	}
+
+	/** Collects a .user.ini's auto_prepend_file and auto_append_file values. */
+	private function userIni( string $real ): void {
+		$fh = open_regular( $real );
+		if ( null === $fh ) {
 			return;
 		}
+		while ( false !== ( $line = fgets( $fh ) ) ) {
+			if ( preg_match( '/^\s*auto_(?:prepend|append)_file\s*=(.*)$/i', $line, $m ) && '' !== ini_value( $m[1] ) ) {
+				$this->required[] = ini_value( $m[1] );
+			}
+		}
+		fclose( $fh );
+	}
+
+	/**
+	 * What nginx serves, which decides whether old releases are left out: COMPAT_SERVED; a v3.11.1 call has none, and
+	 * then php sites use the scan path and WordPress sites leave nothing out. '' leaves nothing out.
+	 */
+	private function servedPath(): string {
+		if ( false !== $this->cfg['served'] ) {
+			return $this->cfg['served'];
+		}
+		return 'php' === $this->cfg['site_type'] ? $this->cfg['path'] : '';
+	}
+
+	/**
+	 * Another install's core is left out, silently when EE says its branch supports the target, else as one
+	 * nested_wordpress entry. Every install, the live one first, goes to the report with its version.
+	 */
+	private function judgeInstalls(): void {
+		if ( null !== $this->live ) {
+			$this->installs[] = [ 'dir' => $this->live, 'version' => wp_version( $this->live ), 'live' => true ];
+		}
+		$nested = array_keys( $this->nested );
+		sort( $nested, SORT_STRING );
+		foreach ( $nested as $dir ) {
+			$version          = wp_version( $dir );
+			$this->installs[] = [ 'dir' => $dir, 'version' => $version, 'live' => false ];
+			if ( in_array( wp_branch( $version ), $this->cfg['wp_supported'], true ) ) {
+				$this->leftOut[] = $dir;
+			} else {
+				$this->notChecked( $this->comp( 'directory', $this->relMount( $dir ), null, $dir ), './', 'nested_wordpress' );
+			}
+		}
+	}
+
+	/**
+	 * The WordPress directory. Plugins, themes and mu-plugins of every content root are walked before anything else, so
+	 * a directory reached both from there and through another path belongs to the component; the rest of the WordPress
+	 * directory (everything but the live root's core) comes last.
+	 */
+	private function wpTree( string $wp, array $top ): void {
+		$root   = $wp . '/wp-content';
 		$config = $this->wpConfig( $wp );
 		if ( null !== $config ) {
 			// Reported by its real path relative to /var/www (the file to edit), e.g. htdocs/wp-config.php.
@@ -280,11 +371,6 @@ final class Scanner {
 		}
 		// Everything else in the WordPress directory but core: custom endpoints, a second app, a linked target's siblings.
 		$this->scanTop( $wp, $rest, $this->comp( 'directory', $this->relMount( $wp ), null, $wp ), $this->relMount( $wp ) . '/' );
-
-		// Core of another install isn't scanned (too large) but isn't silent either.
-		foreach ( array_keys( $this->nested ) as $dir ) {
-			$this->notChecked( $this->comp( 'directory', $this->relMount( $dir ), null, $dir ), './', 'nested_wordpress' );
-		}
 	}
 
 	/** A directory in scope holding plugins/ or themes/: a content root. */
@@ -293,9 +379,12 @@ final class Scanner {
 		return null !== $real && is_dir( $real ) && ! $this->outOfScope( $real ) && ( is_dir( $path . '/plugins' ) || is_dir( $path . '/themes' ) );
 	}
 
-	/** Path relative to /var/www, as given (unresolved). */
+	/** Path relative to /var/www, as given (unresolved); a path outside it stays absolute. */
 	private function relMount( string $path ): string {
-		return MOUNT_ROOT === $path ? '' : substr( $path, strlen( MOUNT_ROOT ) + 1 );
+		if ( MOUNT_ROOT === $path ) {
+			return '';
+		}
+		return 0 === strpos( $path, MOUNT_ROOT . '/' ) ? substr( $path, strlen( MOUNT_ROOT ) + 1 ) : $path;
 	}
 
 	/**
@@ -336,12 +425,11 @@ final class Scanner {
 	}
 
 	/**
-	 * Php sites: what lies in /var/www beside htdocs (code above the public dir). Links come last, so a directory is
-	 * listed under its own name before a link to it.
+	 * What lies in /var/www beside the root (code above the public dir, a second app, the www-data home), as components
+	 * named $prefix . name. Links come last, so a directory is listed under its own name before a link to it.
 	 */
-	private function scanBeside(): void {
+	private function scanBeside( int $loose, string $prefix ): void {
 		$this->markDir( MOUNT_ROOT );
-		$loose   = $this->comp( 'directory', '..', null, MOUNT_ROOT );
 		$entries = $this->readDir( MOUNT_ROOT );
 		if ( null === $entries ) {
 			$this->notChecked( $loose, './', 'unreadable' );
@@ -349,18 +437,15 @@ final class Scanner {
 		}
 		$links = [];
 		foreach ( $entries as $name ) {
-			if ( 'htdocs' === $name ) {
-				continue;
-			}
 			if ( is_link( MOUNT_ROOT . '/' . $name ) ) {
 				$links[] = $name;
 			} elseif ( in_array( $name, HOME_DIRS, true ) ) {
 				$this->skipped( MOUNT_ROOT . '/' . $name, $name, $loose );
 			} else {
-				$this->scanTop( MOUNT_ROOT, [ $name ], $loose, '../' );
+				$this->scanTop( MOUNT_ROOT, [ $name ], $loose, $prefix );
 			}
 		}
-		$this->scanTop( MOUNT_ROOT, $links, $loose, '../' );
+		$this->scanTop( MOUNT_ROOT, $links, $loose, $prefix );
 	}
 
 	/**
@@ -458,14 +543,14 @@ final class Scanner {
 		return function_exists( 'posix_access' ) && ! @posix_access( $path ) && 13 === posix_get_last_error();
 	}
 
-	/** A content root's `other` component, its entries and the names skipped in it (TOP_SKIPS only in the main wp-content). */
+	/** A content root's `other` component, its entries and the names skipped in it (TOP_SKIPS only in the live root's wp-content). */
 	private function wpRoot( string $path, ?string $branch ): array {
 		return [
 			'path'    => $path,
 			'branch'  => $branch,
 			'other'   => $this->comp( 'other', '', $branch, $path ),
 			'entries' => $this->readDir( $path ),
-			'skips'   => null === $branch ? array_merge( TOP_SKIPS, ANY_SKIPS ) : ANY_SKIPS,
+			'skips'   => null === $branch && null !== $this->live ? array_merge( TOP_SKIPS, ANY_SKIPS ) : ANY_SKIPS,
 			'plugins' => null,
 			'themes'  => null,
 		];
@@ -697,11 +782,15 @@ final class Scanner {
 		if ( isset( $this->seenFiles[ $st['dev'] ][ $st['ino'] ] ) ) {
 			return;
 		}
+		if ( '.user.ini' === $name ) {
+			$this->userIni( $real );
+			return;
+		}
 
 		// A phar's code is in the archive, which PHPCS can't read (only its `<?php` stub); also behind a code-named link.
 		if ( $this->isPharName( $name ) || $this->isPharName( $real ) ) {
-			$this->seenFiles[ $st['dev'] ][ $st['ino'] ] = true;
-			$this->notChecked( $comp, $this->rel( $comp, $path ), 'phar' );
+			$this->seenFiles[ $st['dev'] ][ $st['ino'] ] = 'phar';
+			$this->phar( $comp, $this->rel( $comp, $path ) );
 			return;
 		}
 		$mixed = false;
@@ -835,7 +924,7 @@ final class Scanner {
 					continue;
 				}
 				$badLink = ! preg_match( '/\.[A-Za-z0-9]{1,8}\z/', $name ) && is_link( $path ) && null === $this->resolve( $path );
-				if ( $badLink || $this->isPhpName( $name ) || $this->isPharName( $name ) ) {
+				if ( $badLink || $this->isPhpName( $name ) || $this->isPharName( $name ) || '.user.ini' === $name ) {
 					$hits[ $path ] = false;
 				}
 			}
@@ -843,6 +932,49 @@ final class Scanner {
 		}
 		ksort( $hits, SORT_STRING );
 		return $hits;
+	}
+
+	/**
+	 * A phar is information unless scanned code names one (decided in finish()). A v3.11.1 call can't show
+	 * information, so there it is not_checked at once.
+	 */
+	private function phar( int $comp, string $rel ): void {
+		if ( false === $this->cfg['served'] ) {
+			$this->notChecked( $comp, $rel, 'phar' );
+			return;
+		}
+		$this->pharCount++;
+		if ( $this->isScan ) {
+			$this->append( $this->work . '/phars', $comp . ' ' . base64_encode( $rel ) . "\n" );
+		}
+	}
+
+	/** Whether a file names `phar://` or `.phar`, in any case. */
+	private function namesPhar( string $real ): bool {
+		$fh = open_regular( $real );
+		if ( null === $fh ) {
+			return false;
+		}
+		$tail  = '';
+		$found = false;
+		while ( ! $found && '' !== ( $chunk = (string) fread( $fh, 65536 ) ) ) {
+			$found = (bool) preg_match( '#phar://|\.phar#i', $tail . $chunk );
+			$tail  = substr( $chunk, -6 );
+		}
+		fclose( $fh );
+		return $found;
+	}
+
+	/** @return Generator<int,array{0:int,1:string}> The collected phars: component and path relative to it. */
+	private function phars(): Generator {
+		$fh = $this->pharCount > 0 ? fopen( $this->work . '/phars', 'rb' ) : false;
+		while ( false !== $fh && false !== ( $line = fgets( $fh ) ) ) {
+			list( $comp, $rel ) = explode( ' ', rtrim( $line, "\n" ) );
+			yield [ (int) $comp, (string) base64_decode( $rel ) ];
+		}
+		if ( false !== $fh ) {
+			fclose( $fh );
+		}
 	}
 
 	/**
@@ -916,7 +1048,7 @@ final class Scanner {
 
 	/**
 	 * Why a real path is out of scope: 'old' (an old release), 'anchor' (the content root, the scanned directory or an
-	 * ancestor, walked anyway), 'core' (the WordPress root's core) or 'nested' (another install's core); null when in scope.
+	 * ancestor, walked anyway), 'core' (the live root's core) or 'nested' (another install's core); null when in scope.
 	 */
 	private function scopeWhy( string $real ): ?string {
 		foreach ( $this->oldReleases as $old ) {
@@ -933,7 +1065,7 @@ final class Scanner {
 		if ( null === $install ) {
 			return null;
 		}
-		return $install === $this->rootReal ? 'core' : 'nested';
+		return $install === $this->live ? 'core' : 'nested';
 	}
 
 	/**
@@ -974,12 +1106,9 @@ final class Scanner {
 
 	/**
 	 * The install whose core holds a real path: wp-admin/, wp-includes/ (and anything in them) and the core files beside
-	 * them, wherever WordPress is installed. Another install than the root is recorded for a nested_wordpress entry.
+	 * them, wherever WordPress is installed, on php sites too. Installs other than the live root are recorded.
 	 */
 	private function coreOf( string $real ): ?string {
-		if ( 'wp' !== $this->cfg['site_type'] ) {
-			return null;
-		}
 		$install = null;
 		if ( in_array( basename( $real ), CORE_FILES, true ) && $this->coreDir( dirname( $real ) ) ) {
 			$install = dirname( $real );
@@ -992,7 +1121,7 @@ final class Scanner {
 				}
 			}
 		}
-		if ( null !== $install && $install !== $this->rootReal ) {
+		if ( null !== $install && $install !== $this->live ) {
 			$this->nested[ $install ] = true;
 		}
 		return $install;
@@ -1047,7 +1176,12 @@ final class Scanner {
 	}
 
 	private function inside( string $real ): bool {
-		return MOUNT_ROOT === $real || 0 === strpos( $real, MOUNT_ROOT . '/' );
+		foreach ( $this->roots as $root ) {
+			if ( $root === $real || 0 === strpos( $real, $root . '/' ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** Marks a real directory visited; false when it already was (loops, double paths). */
@@ -1327,13 +1461,8 @@ final class Scanner {
 		return [ 'comp' => $h['comp'], 'size' => $h['size'], 'path' => $this->comps[ $h['comp'] ]['base'] . '/' . $rel, 'mixed' => 0 !== ( $h['len'] & MIXED_FLAG ) ];
 	}
 
-	/**
-	 * Steps 1 and 2: the batch, then on their own the files it didn't finish.
-	 * Files are recorded in list order, so findings stay sorted by file.
-	 */
-	private function runBatch( array $batch ): void {
-		$this->checkPins();
-		$plain = [];
+	/** Each listed file as it is now: real path, stat, size, PHPCS route and time cap; null real when it is gone. */
+	private function prepare( array $batch ): array {
 		foreach ( $batch as $k => $f ) {
 			$real = $this->resolve( $f['path'] );
 			$st   = null === $real ? false : @stat( $real );
@@ -1349,9 +1478,28 @@ final class Scanner {
 			// file whose real name has no --extensions match: such files go through STDIN.
 			$batch[ $k ]['stdin'] = odd_path( $real ) || ! $this->phpcsTakes( $real );
 			// Every file's run has a time cap; a sniffed file (not code by name) gets a shorter one.
-			$batch[ $k ]['cap'] = (float) ( $this->isPhpName( basename( $f['path'] ) ) || $this->isPhpName( $real ) ? $this->cfg['file_timeout'] : $this->cfg['sniffed_timeout'] );
-			if ( ! $batch[ $k ]['stdin'] ) {
-				$plain[ $real ] = $k;
+			$code               = $this->isPhpName( basename( $f['path'] ) ) || $this->isPhpName( $real );
+			$batch[ $k ]['cap'] = (float) ( $code ? $this->cfg['file_timeout'] : $this->cfg['sniffed_timeout'] );
+			// Searched only on a site holding a phar, up to the first hit; not in a file refused by size.
+			$search = $this->pharCount > 0 && null === $this->pharNamedBy && ! ( $batch[ $k ]['stdin'] && $st['size'] > STDIN_MAX );
+			if ( $search && $this->namesPhar( $real ) ) {
+				$this->pharNamedBy = $f['path'];
+			}
+		}
+		return $batch;
+	}
+
+	/**
+	 * Steps 1 and 2: the batch, then on their own the files it didn't finish.
+	 * Files are recorded in list order, so findings stay sorted by file.
+	 */
+	private function runBatch( array $batch ): void {
+		$this->checkPins();
+		$batch = $this->prepare( $batch );
+		$plain = [];
+		foreach ( $batch as $k => $f ) {
+			if ( null !== $f['real'] && ! $f['stdin'] ) {
+				$plain[ $f['real'] ] = $k;
 			}
 		}
 
@@ -1465,7 +1613,7 @@ final class Scanner {
 	}
 
 	private function timedOutAt( string $path ): TimedOut {
-		return new TimedOut( sprintf( 'timed out after %d s at %s', $this->timeoutLabel, clean_text( substr( $path, strlen( MOUNT_ROOT ) + 1 ) ) ) );
+		return new TimedOut( sprintf( 'timed out after %d s at %s', $this->timeoutLabel, clean_text( $this->relMount( $path ) ) ) );
 	}
 
 	/** A file missing from a finished run on a nearly full disk is a write failure, not `error`. */
@@ -1601,8 +1749,7 @@ final class Scanner {
 				$this->append( $this->work . "/m-$list", $data );
 			}
 		}
-		$wp   = 'wp' === $this->cfg['site_type'];
-		$core = $wp && null !== $this->rootReal && $this->coreDir( $this->rootReal ) ? $this->rootReal . '/' : null;
+		$core = array_merge( null === $this->live ? [] : [ $this->live ], $this->leftOut );
 		$head = [
 			'v'                           => 1,
 			'code_extensions'             => CODE_EXTENSIONS,
@@ -1615,15 +1762,10 @@ final class Scanner {
 				'scope'              => 'except_skipped_dirs',
 				'skipped_dirs'       => array_values( array_unique( array_map( 'manifest_path', $this->skippedDirs ) ) ),
 			],
-			'roots'                       => $wp ? ( null === $this->rootReal ? [] : [ manifest_path( $this->rootReal . '/' ) ] ) : [ MOUNT_ROOT . '/' ],
+			'roots'                       => array_map( 'manifest_dir', $this->roots ),
 			'excluded'                    => [],
-			'old_releases'                => array_map(
-				static function ( $d ) {
-					return manifest_path( $d . '/' );
-				},
-				$this->oldReleases
-			),
-			'core'                        => [ 'root' => null === $core ? null : manifest_path( $core ), 'dirs' => CORE_DIRS, 'files' => CORE_FILES ],
+			'old_releases'                => array_map( 'manifest_dir', $this->oldReleases ),
+			'core'                        => [ 'roots' => array_map( 'manifest_dir', $core ), 'dirs' => CORE_DIRS, 'files' => CORE_FILES ],
 		];
 
 		$tmp = OUT_DIR . '/manifest.json.tmp';
@@ -1644,6 +1786,9 @@ final class Scanner {
 			$write( '],"not_checked":[' );
 			$first = true;
 			$this->copySpool( $this->work . '/m-not_checked', $write, $first );
+			$write( '],"information":[' );
+			$first = true;
+			$this->copySpool( $this->work . '/m-information', $write, $first );
 			$write( "]}\n" );
 		} catch ( Throwable $e ) {
 			fclose( $out );
@@ -1665,6 +1810,7 @@ final class Scanner {
 
 	/** Builds the summary and streams the report from the spool. */
 	private function finish(): array {
+		$this->settlePhars();
 		$listed = $this->listedComponents();
 
 		$errors = $warnings = $checked = $bytes = $withErrors = 0;
@@ -1768,7 +1914,11 @@ final class Scanner {
 			$write( '],"not_checked":[' );
 			$first = true;
 			$this->copySpool( $this->work . '/not_checked', $write, $first );
-			$write( "]}\n" );
+			$write( '],' . substr( json_encode( $this->reportTail(), JSON_FLAGS ), 1, -1 ) );
+			if ( false !== $this->cfg['served'] ) {
+				$this->writePhars( $write );
+			}
+			$write( "}\n" );
 		} catch ( Throwable $e ) {
 			fclose( $out );
 			@unlink( $tmp );
@@ -1778,6 +1928,40 @@ final class Scanner {
 		if ( ! fclose( $out ) || ! @rename( $tmp, OUT_DIR . '/report.json' ) ) {
 			throw new ToolError( 'could not write the report' );
 		}
+	}
+
+	/** Report keys after not_checked: the WordPress installs and, for a caller that sets COMPAT_SERVED, the old releases left out. */
+	private function reportTail(): array {
+		$tail = [ 'wordpress_installs' => [] ];
+		foreach ( $this->installs as $i ) {
+			$tail['wordpress_installs'][] = [ 'dir' => clean_text( $i['dir'] ), 'version' => clean_text( $i['version'] ), 'live' => $i['live'] ];
+		}
+		if ( false !== $this->cfg['served'] ) {
+			$tail['excluded_old_releases'] = array_map( 'clean_text', $this->oldReleases );
+		}
+		return $tail;
+	}
+
+	/** With a phar named by scanned code, every phar is not_checked; else the manifest lists each as information. */
+	private function settlePhars(): void {
+		foreach ( $this->phars() as list( $comp, $rel ) ) {
+			if ( null !== $this->pharNamedBy ) {
+				$this->spoolNotChecked( $comp, $rel, 'phar' );
+			} elseif ( $this->cfg['manifest'] ) {
+				$this->manifestAdd( 'information', (string) realpath( $this->comps[ $comp ]['base'] . '/' . $rel ) );
+			}
+		}
+	}
+
+	/** `phars` (the phars kept as information, streamed: a site may hold thousands) and `phar_named_by`. */
+	private function writePhars( callable $write ): void {
+		$write( ',"phars":[' );
+		$sep = '';
+		foreach ( null === $this->pharNamedBy ? $this->phars() : [] as list( $comp, $rel ) ) {
+			$write( $sep . json_encode( clean_text( $this->comps[ $comp ]['base'] . '/' . $rel ), JSON_FLAGS ) );
+			$sep = ',';
+		}
+		$write( '],"phar_named_by":' . json_encode( clean_nullable( $this->pharNamedBy ), JSON_FLAGS ) );
 	}
 
 	/** Appends a spool of `,{...}` items, dropping the leading comma of the first; then deletes it. */
@@ -2203,6 +2387,20 @@ function manifest_path( string $path ): string {
 	return preg_match( '//u', $path ) ? $path : 'b64:' . base64_encode( $path );
 }
 
+function manifest_dir( string $dir ): string {
+	return manifest_path( $dir . '/' );
+}
+
+/** An ini value as PHP reads it: quoted, or up to a `;` comment; none, off, no, false and null are empty. */
+function ini_value( string $raw ): string {
+	$raw = trim( $raw );
+	if ( preg_match( '/^"([^"]*)"|^\'([^\']*)\'/', $raw, $m ) ) {
+		return $m[1] . ( $m[2] ?? '' );
+	}
+	$value = trim( (string) strstr( $raw . ';', ';', true ) );
+	return preg_match( '/^(?:none|off|no|false|null)?\z/i', $value ) ? '' : $value;
+}
+
 function clean_nullable( ?string $s ): ?string {
 	return null === $s ? null : clean_text( $s );
 }
@@ -2346,6 +2544,39 @@ function env_memory( string $name, string $default ): string {
 	return $v;
 }
 
+/** A path under /var/www; site-command keeps a --public-dir like `a//b` as typed. */
+function mount_path( string $path, string $what ): string {
+	$path = rtrim( (string) preg_replace( '#/+#', '/', $path ), '/' );
+	if ( ( MOUNT_ROOT !== $path && 0 !== strpos( $path, MOUNT_ROOT . '/' ) ) || preg_match( '#/\.\.?(/|\z)|[\x00-\x1F\x7F]#', $path ) ) {
+		throw new BadArgs( "$what must be an absolute path under " . MOUNT_ROOT );
+	}
+	return $path;
+}
+
+/** An install's version: exactly one `$wp_version = '…';` line in its version.php, else '' (unknown). */
+function wp_version( string $dir ): string {
+	$fh = open_regular( $dir . '/wp-includes/version.php' );
+	if ( null === $fh ) {
+		return '';
+	}
+	$lines = [];
+	while ( false !== ( $line = fgets( $fh ) ) ) {
+		if ( preg_match( '/\$wp_version\s*=/', $line ) ) {
+			$lines[] = $line;
+		}
+	}
+	fclose( $fh );
+	if ( 1 !== count( $lines ) || ! preg_match( '/^\s*\$wp_version\s*=\s*\'(\d+\.\d+[0-9A-Za-z.+-]*)\'\s*;\s*$/', $lines[0], $m ) ) {
+		return '';
+	}
+	return $m[1];
+}
+
+/** major.minor of a WordPress version, as EE's support table names branches. */
+function wp_branch( string $version ): string {
+	return preg_match( '/^\d+\.\d+/', $version, $m ) ? $m[0] : '';
+}
+
 function parse_args( array $argv, array &$cfg ): void {
 	$cfg['mode']      = $argv[0] ?? '';
 	$cfg['site_type'] = $argv[1] ?? '';
@@ -2359,12 +2590,28 @@ function parse_args( array $argv, array &$cfg ): void {
 	if ( ! in_array( $cfg['site_type'], [ 'wp', 'php' ], true ) ) {
 		throw new BadArgs( 'site type must be wp or php' );
 	}
-	// site-command keeps a --public-dir like `a//b` as typed.
-	$path = rtrim( (string) preg_replace( '#/+#', '/', $cfg['path'] ), '/' );
-	if ( ( MOUNT_ROOT !== $path && 0 !== strpos( $path, MOUNT_ROOT . '/' ) ) || preg_match( '#/\.\.?(/|\z)|[\x00-\x1F\x7F]#', $path ) ) {
-		throw new BadArgs( 'path must be an absolute path under ' . MOUNT_ROOT );
+	$cfg['path'] = mount_path( $cfg['path'], 'path' );
+	// False when absent: a v3.11.1 call, unlike an empty value.
+	$cfg['served'] = getenv( 'COMPAT_SERVED' );
+	if ( is_string( $cfg['served'] ) && '' !== $cfg['served'] ) {
+		$cfg['served'] = mount_path( $cfg['served'], 'COMPAT_SERVED' );
 	}
-	$cfg['path'] = $path;
+	$cfg['require'] = array_values( array_filter( array_map( 'trim', explode( "\n", (string) getenv( 'COMPAT_REQUIRE' ) ) ), 'strlen' ) );
+	$cfg['extra_roots'] = [];
+	foreach ( array_filter( explode( "\n", (string) getenv( 'COMPAT_EXTRA_ROOTS' ) ), 'strlen' ) as $root ) {
+		$malformed = '/' !== $root[0] || preg_match( '#//|/\.\.?(/|\z)|/\z|[\x00-\x1F\x7F]#', $root );
+		if ( $malformed || MOUNT_ROOT === $root || 0 === strpos( $root, MOUNT_ROOT . '/' ) ) {
+			throw new BadArgs( 'COMPAT_EXTRA_ROOTS must be absolute paths outside ' . MOUNT_ROOT . ', one per line' );
+		}
+		$cfg['extra_roots'][] = $root;
+	}
+	$supported           = (string) getenv( 'COMPAT_WP_SUPPORTED' );
+	$cfg['wp_supported'] = '' === $supported ? [] : explode( ',', $supported );
+	foreach ( $cfg['wp_supported'] as $branch ) {
+		if ( ! preg_match( '/^\d+\.\d+\z/', $branch ) ) {
+			throw new BadArgs( 'COMPAT_WP_SUPPORTED must be branches like 6.8, comma-separated' );
+		}
+	}
 	if ( ! preg_match( '/^\d+\.\d+\z/', $cfg['version'] ) ) {
 		throw new BadArgs( 'version must look like 8.4' );
 	}

@@ -33,11 +33,19 @@ entry() {
 	fi
 }
 
+# The env site-command v3.11.2 passes: COMPAT_SERVED is the scan path unless the caller's own -e follows. R5=1 calls the
+# way v3.11.1 does, with none of it.
+v2_env() { [ -n "${R5:-}" ] || printf -- '-e COMPAT_SERVED=%s' "$1"; }
+
+# The --mount arguments among docker args, for the manifest check to see the same tree.
+mounts_of() { while [ $# -gt 0 ]; do [ "$1" = --mount ] && echo --mount "$2"; shift; done; }
+
 # scan <name> <app> <type> <path> <version> <timeout> [docker args...]
 scan() {
 	local name=$1 app=$2 type=$3 path=$4 ver=$5 timeout=$6
 	shift 6
-	local out rc=0
+	local out rc=0 mounts
+	mapfile -t mounts < <(mounts_of "$@" | tr ' ' '\n')
 	out=$(new_out "$name")
 	# OUT_DIR_AT=report.json: a directory already there, so publishing the report fails.
 	if [ -n "${OUT_DIR_AT:-}" ]; then mkdir "$out/$OUT_DIR_AT" && chmod 0777 "$out/$OUT_DIR_AT"; fi
@@ -48,7 +56,7 @@ scan() {
 		--cap-drop ALL --security-opt no-new-privileges --pids-limit 64 \
 		--memory 1g --memory-swap 1g --cpus 1 --cpu-shares 256 \
 		--user 33:33 \
-		-e COMPAT_SITE=fixture.test -e COMPAT_IMAGE="$IMAGE" -e COMPAT_MANIFEST="${MANIFEST-1}" "$@" \
+		-e COMPAT_SITE=fixture.test -e COMPAT_IMAGE="$IMAGE" -e COMPAT_MANIFEST="${MANIFEST-1}" $(v2_env "$path") "$@" \
 		--mount "type=bind,src=$(realpath "$app"),dst=/var/www,readonly" \
 		--mount "type=bind,src=$out,dst=/out" \
 		$(entry) scan "$type" "$path" "$ver" "$timeout" > "$RES/$name.stdout" 2> "$RES/$name.stderr" || rc=$?
@@ -62,7 +70,7 @@ scan() {
 		local who
 		for who in 33 0; do
 			docker run --rm --network none --read-only --user "$who:$who" \
-				--mount "type=bind,src=$(realpath "$app"),dst=/var/www,readonly" \
+				--mount "type=bind,src=$(realpath "$app"),dst=/var/www,readonly" "${mounts[@]}" \
 				--mount "type=bind,src=$out/manifest.json,dst=/m.json,readonly" \
 				--mount "type=bind,src=$HERE/manifest-check.php,dst=/t/manifest-check.php,readonly" \
 				--entrypoint php "$IMAGE" /t/manifest-check.php /m.json > "$RES/$name.mcheck$( [ "$who" = 0 ] && echo -root )" 2>&1 || true
@@ -116,7 +124,7 @@ estimate() {
 		--cap-drop ALL --security-opt no-new-privileges --pids-limit 64 \
 		--memory 1g --memory-swap 1g --cpus 1 --cpu-shares 256 \
 		--user 33:33 \
-		-e COMPAT_SITE=fixture.test "$@" \
+		-e COMPAT_SITE=fixture.test $(v2_env "$path") "$@" \
 		--mount "type=bind,src=$(realpath "$app"),dst=/var/www,readonly" \
 		$(entry) estimate "$type" "$path" "$ver" 120 > "$RES/$name.stdout" 2> "$RES/$name.stderr" || rc=$?
 	echo "$rc" > "$RES/$name.rc"
@@ -305,7 +313,8 @@ scan stdin "$WORK/stdin" wp /var/www/htdocs 8.4 600
 scan phpdot "$WORK/phpdot" php /var/www/htdocs 8.4 600
 scan phpdot-root "$WORK/phpdot-root" php /var/www/htdocs 8.4 600
 scan untrav "$WORK/untrav" wp /var/www/htdocs 8.4 600
-ENTRY_MEMORY=10M scan pharflood "$WORK/pharflood" wp /var/www/htdocs 8.4 600
+R5=1 ENTRY_MEMORY=10M scan pharflood "$WORK/pharflood" wp /var/www/htdocs 8.4 600
+ENTRY_MEMORY=10M scan pharflood-info "$WORK/pharflood" wp /var/www/htdocs 8.4 600
 
 # r7: links into old releases and core are entries; links leaving /var/www by non-asset names; php home dot dirs (dot
 # links, dirs uid 33 can't open, links that don't resolve, their own time budget); the per-file cap; the STDIN copy cap.
@@ -325,6 +334,55 @@ estimate est-bigstdin "$WORK/bigstdin" wp /var/www/htdocs 8.4
 bak_fixture "$WORK/bak"
 scan bak "$WORK/bak" wp /var/www/htdocs 8.4 600
 MANIFEST= scan nomanifest "$WORK/wp-clean" wp /var/www/htdocs/current 8.4 600
+
+# The whole of /var/www on WordPress sites; every install found and judged by its version (COMPAT_WP_SUPPORTED).
+wpapp_fixture "$WORK/wpapp"
+scan wpapp "$WORK/wpapp" wp /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.8,6.9
+scan wpapp-supported "$WORK/wpapp" wp /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.1,6.8
+estimate est-wpapp "$WORK/wpapp" wp /var/www/htdocs 8.4 -e COMPAT_WP_SUPPORTED=6.8,6.9
+R5=1 scan r5call "$WORK/wpapp" wp /var/www/htdocs 8.4 600
+nolive_fixture "$WORK/nolive"
+scan nolive "$WORK/nolive" wp /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.8
+phpwpcore_fixture "$WORK/phpwpcore"
+scan phpwpcore "$WORK/phpwpcore" php /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.8,6.9
+scan phpwpcore-old "$WORK/phpwpcore" php /var/www/htdocs 8.4 600
+R5=1 scan r5call-php "$WORK/phpwpcore" php /var/www/htdocs 8.4 600
+# A mount over the live root's wp-includes: the version PHP runs, not the one left underneath.
+mountcore_fixture "$WORK/mountcore"
+scan mountcore "$WORK/mountcore" wp /var/www/htdocs 8.4 600 --mount "type=bind,src=$WORK/mountcore-61,dst=/var/www/htdocs/wp-includes,readonly"
+
+# Old releases: left out only when what nginx serves (COMPAT_SERVED) passes `current`.
+wpold_fixture "$WORK/wpold"
+scan wpold-served "$WORK/wpold" wp /var/www/htdocs/current 8.4 600
+scan wpold-noserved "$WORK/wpold" wp /var/www/htdocs/current 8.4 600 -e COMPAT_SERVED=
+scan wpold-above "$WORK/wpold" wp /var/www/htdocs/current 8.4 600 -e COMPAT_SERVED=/var/www/htdocs
+R5=1 scan wpold-r5 "$WORK/wpold" wp /var/www/htdocs/current 8.4 600
+scan phpold-noserved "$WORK/php-rel" php /var/www/htdocs/current/public 8.4 600 -e COMPAT_SERVED=
+
+# Mounts outside /var/www (COMPAT_EXTRA_ROOTS), searched by name; without the mount, the link dangles.
+extraroot_fixture "$WORK/extraroot"
+scan extraroot "$WORK/extraroot/app" wp /var/www/htdocs 8.4 600 \
+	--mount "type=bind,src=$WORK/extraroot/media,dst=/mnt/media,readonly" --mount "type=bind,src=$WORK/extraroot/shared,dst=/srv/shared,readonly" \
+	-e COMPAT_EXTRA_ROOTS=$'/mnt/media\n/srv/shared'
+scan extraroot-none "$WORK/extraroot/app" wp /var/www/htdocs 8.4 600
+
+# Prepend and append targets (COMPAT_REQUIRE, .user.ini): each must be a file the scan read.
+require_fixture "$WORK/require"
+scan require "$WORK/require" wp /var/www/htdocs 8.4 600 \
+	-e COMPAT_REQUIRE=$'/var/www/htdocs/wordfence-waf.php\n/usr/local/etc/php/xhprof.php\n/var/www/htdocs/wp-includes/version.php\n/var/www/htdocs/wp-cli.phar\n/var/www/htdocs/notes.txt\nrel.php\n'
+
+# Phars are information unless scanned code names one (in any case, also across a 64 KiB read).
+phar_fixture "$WORK/phar-info" none
+phar_fixture "$WORK/phar-named" named
+phar_fixture "$WORK/phar-upper" upper
+phar_fixture "$WORK/phar-split" split
+for f in info named upper split; do scan "phar-$f" "$WORK/phar-$f" wp /var/www/htdocs 8.4 600; done
+R5=1 scan phar-r5call "$WORK/phar-info" wp /var/www/htdocs 8.4 600
+
+# Malformed new env.
+scan badargs-served "$WORK/wp" wp /var/www/htdocs 8.4 600 -e COMPAT_SERVED=/etc
+scan badargs-supported "$WORK/wp" wp /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6
+scan badargs-roots "$WORK/wp" wp /var/www/htdocs 8.4 600 -e COMPAT_EXTRA_ROOTS=/var/www/x
 
 # An estimate keeps time for calibration: throttled, the listing of 20,000 files can't finish in its share of 1 s.
 estimate est-listing "$WORK/wide" wp /var/www/htdocs 8.4 -e COMPAT_ESTIMATE_TIMEOUT=1 --cpus 0.05
