@@ -33,9 +33,9 @@ entry() {
 	fi
 }
 
-# The env site-command v3.11.2 passes: COMPAT_SERVED is the scan path unless the caller's own -e follows. R5=1 calls the
-# way v3.11.1 does, with none of it.
-v2_env() { [ -n "${R5:-}" ] || printf -- '-e COMPAT_SERVED=%s' "$1"; }
+# The env site-command v3.11.2 passes: COMPAT_SERVED is the scan path unless the caller's own -e follows.
+# OLD_CALL=1 calls the way v3.11.1 does, with none of it.
+v2_env() { [ -n "${OLD_CALL:-}" ] || printf -- '-e COMPAT_SERVED=%s' "$1"; }
 
 # The --mount arguments among docker args, for the manifest check to see the same tree.
 mounts_of() { while [ $# -gt 0 ]; do [ "$1" = --mount ] && echo --mount "$2"; shift; done; }
@@ -314,7 +314,7 @@ scan stdin "$WORK/stdin" wp /var/www/htdocs 8.4 600
 scan phpdot "$WORK/phpdot" php /var/www/htdocs 8.4 600
 scan phpdot-root "$WORK/phpdot-root" php /var/www/htdocs 8.4 600
 scan untrav "$WORK/untrav" wp /var/www/htdocs 8.4 600
-R5=1 ENTRY_MEMORY=10M scan pharflood "$WORK/pharflood" wp /var/www/htdocs 8.4 600
+OLD_CALL=1 ENTRY_MEMORY=10M scan pharflood "$WORK/pharflood" wp /var/www/htdocs 8.4 600
 ENTRY_MEMORY=10M scan pharflood-info "$WORK/pharflood" wp /var/www/htdocs 8.4 600
 
 # r7: links into old releases and core are entries; links leaving /var/www by non-asset names; php home dot dirs (dot
@@ -342,13 +342,13 @@ wpapp_fixture "$WORK/wpapp"
 scan wpapp "$WORK/wpapp" wp /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.8,6.9
 scan wpapp-supported "$WORK/wpapp" wp /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.1,6.8
 estimate est-wpapp "$WORK/wpapp" wp /var/www/htdocs 8.4 -e COMPAT_WP_SUPPORTED=6.8,6.9
-R5=1 scan r5call "$WORK/wpapp" wp /var/www/htdocs 8.4 600
+OLD_CALL=1 scan oldcall "$WORK/wpapp" wp /var/www/htdocs 8.4 600
 nolive_fixture "$WORK/nolive"
 scan nolive "$WORK/nolive" wp /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.8
 phpwpcore_fixture "$WORK/phpwpcore"
 scan phpwpcore "$WORK/phpwpcore" php /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.8,6.9
 scan phpwpcore-old "$WORK/phpwpcore" php /var/www/htdocs 8.4 600
-R5=1 scan r5call-php "$WORK/phpwpcore" php /var/www/htdocs 8.4 600
+OLD_CALL=1 scan oldcall-php "$WORK/phpwpcore" php /var/www/htdocs 8.4 600
 # A mount over the live root's wp-includes: the version PHP runs, not the one left underneath.
 mountcore_fixture "$WORK/mountcore"
 scan mountcore "$WORK/mountcore" wp /var/www/htdocs 8.4 600 --mount "type=bind,src=$WORK/mountcore-61,dst=/var/www/htdocs/wp-includes,readonly"
@@ -359,7 +359,7 @@ scan wpold-served "$WORK/wpold" wp /var/www/htdocs/current 8.4 600
 scan wpold-hint "$WORK/wpold" wp /var/www/htdocs/releases/1 8.4 600 -e COMPAT_SERVED=/var/www/htdocs/current -e COMPAT_WP_SUPPORTED=6.8
 scan wpold-noserved "$WORK/wpold" wp /var/www/htdocs/current 8.4 600 -e COMPAT_SERVED=
 scan wpold-above "$WORK/wpold" wp /var/www/htdocs/current 8.4 600 -e COMPAT_SERVED=/var/www/htdocs
-R5=1 scan wpold-r5 "$WORK/wpold" wp /var/www/htdocs/current 8.4 600
+OLD_CALL=1 scan wpold-oldcall "$WORK/wpold" wp /var/www/htdocs/current 8.4 600
 scan phpold-noserved "$WORK/php-rel" php /var/www/htdocs/current/public 8.4 600 -e COMPAT_SERVED=
 
 # Mounts outside /var/www (COMPAT_EXTRA_ROOTS), searched by name; without the mount, the link dangles.
@@ -380,7 +380,7 @@ phar_fixture "$WORK/phar-named" named
 phar_fixture "$WORK/phar-upper" upper
 phar_fixture "$WORK/phar-split" split
 for f in info named upper split; do scan "phar-$f" "$WORK/phar-$f" wp /var/www/htdocs 8.4 600; done
-R5=1 scan phar-r5call "$WORK/phar-info" wp /var/www/htdocs 8.4 600
+OLD_CALL=1 scan phar-oldcall "$WORK/phar-info" wp /var/www/htdocs 8.4 600
 
 # The syntax lint: PHP 8 parse errors PHPCompatibility misses; above the scanner's PHP, unparseable instead.
 lint_fixture "$WORK/lint"

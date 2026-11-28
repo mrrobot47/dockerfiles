@@ -850,17 +850,17 @@ eq( $wa['not_checked'] ?? null, [ nc( 'directory', 'htdocs-backup', null, './', 
 eq( installs( 'wpapp' ), [ '/var/www/htdocs 6.8.3 live', '/var/www/htdocs-backup 6.1.1' ], 'wpapp: both installs with their versions, the live one first' );
 eq( [ counts( 'wpapp-supported' ), report( 'wpapp-supported' )['not_checked'] ?? null ], [ [ 'ok', false, 5, 7, 0 ], [] ], 'wpapp-supported: a supported branch\'s core is left out silently' );
 eq( out( 'est-wpapp' )['php_files'] ?? null, 8, 'est-wpapp: counts equal the scan' );
-$r5 = report( 'r5call' );
-eq( [ counts( 'r5call' ), array_key_exists( 'phars', $r5 ) || array_key_exists( 'excluded_old_releases', $r5 ), installs( 'r5call' ) ], [ [ 'ok', false, 5, 7, 1 ], false, [ '/var/www/htdocs 6.8.3 live', '/var/www/htdocs-backup 6.1.1' ] ], 'r5call: a v3.11.1 call: no supported branches, no phar or release keys' );
+$old = report( 'oldcall' );
+eq( [ counts( 'oldcall' ), array_key_exists( 'phars', $old ) || array_key_exists( 'excluded_old_releases', $old ), installs( 'oldcall' ) ], [ [ 'ok', false, 5, 7, 1 ], false, [ '/var/www/htdocs 6.8.3 live', '/var/www/htdocs-backup 6.1.1' ] ], 'oldcall: a v3.11.1 call: no supported branches, no phar or release keys' );
 eq( counts( 'nolive' ), [ 'ok', false, 2, 2, 0 ], 'nolive: the scan path isn\'t an install: no live root, so uploads/ is sniffed; the install below it is supported' );
 eq( installs( 'nolive' ), [ '/var/www/htdocs/wp 6.8.1' ], 'nolive: no live install' );
 eq( [ counts( 'phpwpcore' ), installs( 'phpwpcore' ) ], [ [ 'ok', true, 0, 2, 0 ], [ '/var/www/htdocs/blog 6.8.3' ] ], 'phpwpcore: WordPress inside a php site: its core judged by version, not scanned' );
 eq( [ counts( 'phpwpcore-old' ), report( 'phpwpcore-old' )['not_checked'] ?? null ], [ [ 'ok', null, 0, 2, 1 ], [ nc( 'directory', 'htdocs/blog', null, './', 'nested_wordpress' ) ] ], 'phpwpcore-old: without a supported branch, nested_wordpress' );
-eq( [ counts( 'r5call-php' ), array_key_exists( 'phars', report( 'r5call-php' ) ) ], [ [ 'ok', null, 0, 2, 1 ], false ], 'r5call-php: a v3.11.1 call on a php site' );
+eq( [ counts( 'oldcall-php' ), array_key_exists( 'phars', report( 'oldcall-php' ) ) ], [ [ 'ok', null, 0, 2, 1 ], false ], 'oldcall-php: a v3.11.1 call on a php site' );
 eq( [ counts( 'mountcore' ), installs( 'mountcore' ) ], [ [ 'ok', true, 0, 1, 0 ], [ '/var/www/htdocs 6.1.1 live' ] ], 'mountcore: the version is read where PHP reads it, through a mount over wp-includes' );
 
 eq( [ counts( 'wpold-served' ), report( 'wpold-served' )['excluded_old_releases'] ?? null ], [ [ 'ok', true, 0, 1, 0 ], [ '/var/www/htdocs/releases/1', '/var/www/htdocs/releases/2' ] ], 'wpold-served: nginx serves current: the old releases are left out' );
-foreach ( [ 'wpold-noserved', 'wpold-above', 'wpold-r5' ] as $name ) {
+foreach ( [ 'wpold-noserved', 'wpold-above', 'wpold-oldcall' ] as $name ) {
 	eq( [ counts( $name ), finding_files( report( $name ) ) ], [ [ 'ok', false, 2, 3, 0 ], [ 'directory:htdocs::releases/1/wp-content/plugins/old/old.php', 'directory:htdocs::releases/2/x.php' ] ], "$name: not sure, above current, or a v3.11.1 call: every release scanned" );
 }
 eq( report( 'wpold-noserved' )['excluded_old_releases'] ?? null, [], 'wpold-noserved: none left out' );
@@ -888,8 +888,8 @@ foreach ( [ 'phar-info' => null, 'phar-named' => 'boot.php', 'phar-upper' => 'bo
 	eq( [ $r['phars'] ?? null, field( $r, 'phar_named_by' ), $r['not_checked'] ?? null ], [ null === $by ? $phars : [], $named, $nc ], "$name: phars are information unless scanned code names one" );
 	eq( field( out( $name ), 'safe_to_upgrade' ), null === $by ? true : null, "$name: verdict" );
 }
-$r = report( 'phar-r5call' );
-eq( [ array_key_exists( 'phars', $r ), array_column( $r['not_checked'] ?? [], 'reason' ) ], [ false, [ 'phar', 'phar' ] ], 'phar-r5call: a v3.11.1 call keeps phar entries' );
+$r = report( 'phar-oldcall' );
+eq( [ array_key_exists( 'phars', $r ), array_column( $r['not_checked'] ?? [], 'reason' ) ], [ false, [ 'phar', 'phar' ] ], 'phar-oldcall: a v3.11.1 call keeps phar entries' );
 
 $li = report( 'lint' );
 eq( counts( 'lint' ), [ 'ok', false, 3, 7, 1 ], 'lint: verdict and counts' );
