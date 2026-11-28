@@ -213,6 +213,8 @@ badlink_fixture "$WORK/wplink-dangling" wp /var/www/nowhere
 badlink_fixture "$WORK/wplink-out" wp /etc
 badlink_fixture "$WORK/phplink-dangling" php /var/www/nowhere
 phpbeside_fixture "$WORK/phpbeside"
+nohtdocs_fixture "$WORK/nohtdocs" missing
+nohtdocs_fixture "$WORK/badhtdocs" dangling
 bedrock_fixture "$WORK/bedrock"
 scan wpscope "$WORK/wpscope" wp /var/www/htdocs 8.4 600
 estimate est-wpscope "$WORK/wpscope" wp /var/www/htdocs 8.4
@@ -221,6 +223,11 @@ scan wplink-dangling "$WORK/wplink-dangling" wp /var/www/htdocs 8.4 600
 scan wplink-out "$WORK/wplink-out" wp /var/www/htdocs 8.4 600
 scan phplink-dangling "$WORK/phplink-dangling" php /var/www/htdocs 8.4 600
 scan phpbeside "$WORK/phpbeside" php /var/www/htdocs 8.4 600
+# Without a usable htdocs, the code beside it, the mounts and the prepend targets are still checked.
+for n in nohtdocs badhtdocs; do
+	scan "$n" "$WORK/$n" php /var/www/htdocs 8.4 600 --mount "type=bind,src=$WORK/$n-mnt,dst=/mnt/lib,readonly" \
+		-e COMPAT_EXTRA_ROOTS=/mnt/lib -e COMPAT_REQUIRE=/usr/local/x.php
+done
 phpdeep_fixture "$WORK/phpdeep"
 scan phpdeep "$WORK/phpdeep" php /var/www/htdocs 8.4 600
 estimate est-phpbeside "$WORK/phpbeside" php /var/www/htdocs 8.4

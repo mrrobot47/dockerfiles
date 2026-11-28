@@ -1024,3 +1024,12 @@ secretroot_fixture() {
 	php_file "$1/one.php" 'each( $a );'
 	chmod -R a+rX "$1"
 }
+
+# nohtdocs_fixture <app-dir> <missing|dangling>: a php site whose htdocs is missing or a dangling link, with code beside it;
+# <app-dir>-mnt is mounted by run.sh.
+nohtdocs_fixture() {
+	php_file "$1/lib/old.php" 'each( $a );'
+	[ "$2" = dangling ] && ln -s /var/www/nowhere "$1/htdocs"
+	php_file "$1-mnt/y.php" 'each( $a );'
+	chmod -R a+rX "$1" "$1-mnt"
+}

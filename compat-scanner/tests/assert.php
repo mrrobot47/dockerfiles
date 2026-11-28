@@ -442,6 +442,16 @@ foreach ( [ 'wplink-dangling', 'wplink-out', 'phplink-dangling' ] as $name ) {
 	eq( report( $name )['not_checked'] ?? null, [ [ 'type' => 'other', 'slug' => '', 'branch' => null, 'file' => './', 'reason' => 'unreadable' ] ], "$name: the root is unreadable" );
 }
 
+$nh_files = [ 'directory:../lib::old.php', 'directory:/mnt/lib::y.php' ];
+$nh_nc    = [ nc( 'other', '', null, '/usr/local/x.php', 'unreadable' ) ];
+$nh_want = [ 'nohtdocs' => [ [ 'ok', false, 2, 2, 1 ], $nh_files, $nh_nc ] ];
+$nh_nc   = array_merge( [ nc( 'other', '', null, './', 'unreadable' ) ], $nh_nc );
+$nh_want['badhtdocs'] = [ [ 'ok', false, 2, 2, 2 ], $nh_files, $nh_nc ];
+foreach ( $nh_want as $name => $want ) {
+	$r = report( $name );
+	eq( [ counts( $name ), finding_files( $r ), $r['not_checked'] ?? null ], $want, "$name: without a usable htdocs, the rest is checked" );
+}
+
 $pb = out( 'phpbeside' );
 eq( [ $pb['status'] ?? null, field( $pb, 'safe_to_upgrade' ), $pb['errors'] ?? null, $pb['files_checked'] ?? null, $pb['files_not_checked'] ?? null ], [ 'ok', false, 4, 5, 0 ], 'phpbeside: code beside htdocs checked, and the code-named files of the home dirs' );
 eq( report( 'phpbeside' )['not_checked'] ?? null, [], 'phpbeside: home dirs holding code are no entries' );

@@ -203,19 +203,20 @@ final class Scanner {
 			$this->oldReleases     = $this->oldReleases( $served );
 		}
 		if ( 'php' === $this->cfg['site_type'] ) {
-			$root = MOUNT_ROOT . '/htdocs';
-			if ( ! $this->enterRoot( $root ) ) {
-				return;
+			// A missing or bad htdocs (its own entry) leaves the code beside it, the mounts and the prepend targets to check.
+			$root    = MOUNT_ROOT . '/htdocs';
+			$entered = $this->enterRoot( $root );
+			if ( $entered ) {
+				$this->rootReal = $this->contentReal;
+				$other          = $this->comp( 'other', '', null, $root );
+				$entries        = $this->readDir( $root );
+				if ( null === $entries ) {
+					$this->notChecked( $other, './', 'unreadable' );
+				} else {
+					$this->scanTop( $root, $entries, $other, '' );
+				}
 			}
-			$this->rootReal = $this->contentReal;
-			$other          = $this->comp( 'other', '', null, $root );
-			$entries        = $this->readDir( $root );
-			if ( null === $entries ) {
-				$this->notChecked( $other, './', 'unreadable' );
-				return;
-			}
-			$this->scanTop( $root, $entries, $other, '' );
-			$this->scanBeside( $this->comp( 'directory', '..', null, MOUNT_ROOT ), '../' );
+			$this->scanBeside( $this->comp( 'directory', '..', null, MOUNT_ROOT ), '../', $entered ? [] : [ 'htdocs' ] );
 		} else {
 			$top = $this->wpDir( $this->cfg['path'] );
 			if ( null !== $top ) {
@@ -499,9 +500,10 @@ final class Scanner {
 
 	/**
 	 * What lies in /var/www beside the root (code above the public dir, a second app, the www-data home), as components
-	 * named $prefix . name. Links come last, so a directory is listed under its own name before a link to it.
+	 * named $prefix . name; $skip: a root already reported. Links come last, so a directory is listed under its own name
+	 * before a link to it.
 	 */
-	private function scanBeside( int $loose, string $prefix ): void {
+	private function scanBeside( int $loose, string $prefix, array $skip = [] ): void {
 		$this->markDir( MOUNT_ROOT );
 		$entries = $this->readDir( MOUNT_ROOT );
 		if ( null === $entries ) {
@@ -509,7 +511,7 @@ final class Scanner {
 			return;
 		}
 		$links = [];
-		foreach ( $entries as $name ) {
+		foreach ( array_diff( $entries, $skip ) as $name ) {
 			if ( is_link( MOUNT_ROOT . '/' . $name ) ) {
 				$links[] = $name;
 			} elseif ( in_array( $name, HOME_DIRS, true ) ) {
