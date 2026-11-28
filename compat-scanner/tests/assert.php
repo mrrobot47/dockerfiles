@@ -896,6 +896,15 @@ eq(
 	'require: outside the site, in core, a phar, not code, relative; from .user.ini files too, also in uploads/ (the scanned wordfence-waf.php and `none` give nothing)'
 );
 
+eq( counts( 'longline' ), [ 'ok', null, 0, 1, 3 ], 'longline: a line too long to read is no tool_error' );
+$long_nc = [
+	nc( 'other', '', null, '/var/www/htdocs/.user.ini', 'unreadable' ),
+	nc( 'other', '', null, '/var/www/htdocs/edge/.user.ini', 'unreadable' ),
+	nc( 'directory', 'htdocs/blog', null, './', 'nested_wordpress' ),
+];
+eq( report( 'longline' )['not_checked'] ?? null, $long_nc, 'longline: a .user.ini with such a line is an entry, also one ending at the buffer end' );
+eq( installs( 'longline' ), [ '/var/www/htdocs/blog ' ], 'longline: a version.php line too long to read is an unknown version' );
+
 foreach ( [ 'phar-info' => null, 'phar-named' => 'boot.php', 'phar-upper' => 'boot.php', 'phar-split' => 'boot.php' ] as $name => $by ) {
 	$r     = report( $name );
 	$phars = [ '/var/www/htdocs/wp-content/plugins/p/lib.phar', '/var/www/htdocs/wp-cli.phar' ];

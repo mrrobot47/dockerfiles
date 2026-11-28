@@ -376,6 +376,10 @@ require_fixture "$WORK/require"
 scan require "$WORK/require" wp /var/www/htdocs 8.4 600 \
 	-e COMPAT_REQUIRE=$'/var/www/htdocs/wordfence-waf.php\n/usr/local/etc/php/xhprof.php\n/var/www/htdocs/wp-includes/version.php\n/var/www/htdocs/wp-cli.phar\n/var/www/htdocs/notes.txt\nrel.php\n'
 
+# One huge line in a .user.ini or version.php, read in little entrypoint memory: an entry and an unknown version.
+longline_fixture "$WORK/longline"
+ENTRY_MEMORY=32M scan longline "$WORK/longline" php /var/www/htdocs 8.4 600 -e COMPAT_WP_SUPPORTED=6.8
+
 # Phars are information unless scanned code names one (in any case, also across a 64 KiB read).
 phar_fixture "$WORK/phar-info" none
 phar_fixture "$WORK/phar-named" named

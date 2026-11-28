@@ -968,3 +968,16 @@ lint_fixture() {
 	mkdir -p "$p/views" && printf '<p>\n<?php function ( { ?>\n' > "$p/views/broken.tpl"
 	chmod -R a+rX "$1"
 }
+
+# longline_fixture <app-dir>: a php site with a .user.ini and a version.php of one 64 MiB line, and a .user.ini whose
+# last line, with no line break, is exactly as long as the scanner's line buffer.
+longline_fixture() {
+	local h="$1/htdocs"
+	php_file "$h/index.php" 'echo 1;'
+	mkdir -p "$h/edge"
+	truncate -s 64M "$h/.user.ini"
+	head -c 1048575 /dev/zero | tr '\0' ' ' > "$h/edge/.user.ini"
+	wp_core "$h/blog" 6.8.3
+	truncate -s 64M "$h/blog/wp-includes/version.php"
+	chmod -R a+rX "$1"
+}

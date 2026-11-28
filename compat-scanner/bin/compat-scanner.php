@@ -248,18 +248,27 @@ final class Scanner {
 		}
 	}
 
-	/** Collects a .user.ini's auto_prepend_file and auto_append_file values. */
-	private function userIni( string $real ): void {
+	/**
+	 * Collects a .user.ini's auto_prepend_file and auto_append_file values. A line too long to read makes the file itself
+	 * an unreadable entry, as EE does for its ini files.
+	 */
+	private function userIni( string $path, string $real ): void {
 		$fh = open_regular( $real );
 		if ( null === $fh ) {
 			return;
 		}
-		while ( false !== ( $line = fgets( $fh ) ) ) {
-			if ( preg_match( '/^\s*auto_(?:prepend|append)_file\s*=(.*)$/i', $line, $m ) && '' !== ini_value( $m[1] ) ) {
+		$unsure = false;
+		foreach ( lines( $fh ) as $line ) {
+			if ( null === $line ) {
+				$unsure = true;
+			} elseif ( preg_match( '/^\s*auto_(?:prepend|append)_file\s*=(.*)$/i', $line, $m ) && '' !== ini_value( $m[1] ) ) {
 				$this->required[] = ini_value( $m[1] );
 			}
 		}
 		fclose( $fh );
+		if ( $unsure ) {
+			$this->notChecked( $this->comp( 'other', '', null, MOUNT_ROOT ), $path, 'unreadable', $real );
+		}
 	}
 
 	/**
@@ -787,7 +796,7 @@ final class Scanner {
 			return;
 		}
 		if ( '.user.ini' === $name ) {
-			$this->userIni( $real );
+			$this->userIni( $path, $real );
 			return;
 		}
 
@@ -2679,9 +2688,10 @@ function wp_version( string $dir ): string {
 		return '';
 	}
 	$lines = [];
-	while ( false !== ( $line = fgets( $fh ) ) ) {
-		if ( preg_match( '/\$wp_version\s*=/', $line ) ) {
-			$lines[] = $line;
+	foreach ( lines( $fh ) as $line ) {
+		// A line too long to read may hold it: then the version is unknown.
+		if ( null === $line || preg_match( '/\$wp_version\s*=/', $line ) ) {
+			$lines[] = (string) $line;
 		}
 	}
 	fclose( $fh );
@@ -2689,6 +2699,28 @@ function wp_version( string $dir ): string {
 		return '';
 	}
 	return strlen( $m[2] ) > 64 ? '' : $m[2];
+}
+
+/**
+ * A file's lines without their `\n`, or null for one longer than LINE_MAX - 2 bytes, so no file size matters.
+ *
+ * @param resource $fh
+ * @return Generator<int,string|null>
+ */
+function lines( $fh ): Generator {
+	$long = false;
+	while ( false !== ( $piece = fgets( $fh, LINE_MAX ) ) ) {
+		if ( "\n" !== substr( $piece, -1 ) && ! feof( $fh ) ) {
+			$long = true;
+			continue;
+		}
+		yield $long ? null : rtrim( $piece, "\n" );
+		$long = false;
+	}
+	// A last piece that filled the buffer exactly, with no line break after it.
+	if ( $long ) {
+		yield null;
+	}
 }
 
 /** major.minor of a WordPress version, as EE's support table names branches. */
