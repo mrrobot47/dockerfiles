@@ -51,11 +51,11 @@ const MIXED_FLAG      = 0x80000000;
 // What sniff() matches in a file's first SNIFF_BYTES, as one regex (no NUL anywhere, then an open tag), for the manifest.
 const SNIFF_REGEX     = '/\\A(?=[^\\x00]*\\z)[\\s\\S]*?<\\?(?:php(?:\\s|\\z)|=)/i';
 const PHAR_REGEX      = '/\\.phar(?:\\.(?:tar|zip))?(?:\\.(?:gz|bz2))?\\z/i';
-// Never PHP templates, so not sniffed: docs, scripts and styles quote `<?php` (and one such file hangs a sniff).
 // Backup copies: never read, so a stale copy can't give "not safe" (a copy code includes is missed, accepted).
 const BACKUP_EXTENSIONS = [ 'bak', 'orig', 'old', 'save', 'swp', 'log', 'sql', 'dist' ];
 // The www-data home in /var/www: searched by name only, like uploads/.
 const HOME_DIRS = [ '.wp-cli', '.composer', '.cache', '.config', '.local', '.npm', '.ssh' ];
+// Never PHP templates, so not sniffed: docs, scripts and styles quote `<?php` (and one such file hangs a sniff).
 const NO_SNIFF_EXTENSIONS = [ 'md', 'markdown', 'txt', 'rst', 'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'map', 'json', 'css', 'scss', 'sass', 'less', 'svg', 'xml', 'yml', 'yaml', 'lock', 'csv', 'po', 'pot', 'mo', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'ico', 'bmp', 'tif', 'tiff', 'woff', 'woff2', 'ttf', 'otf', 'eot', 'pdf', 'zip', 'gz', 'tgz', 'bz2', 'xz' ];
 // Estimate time kept for calibration (two PHPCS runs, ~5 s on one CPU); at most a quarter of the deadline.
 const CALIBRATION_RESERVE = 20;
@@ -2710,27 +2710,7 @@ function parse_args( array $argv, array &$cfg ): void {
 		throw new BadArgs( 'site type must be wp or php' );
 	}
 	$cfg['path'] = mount_path( $cfg['path'], 'path' );
-	// False when absent: a v3.11.1 call, unlike an empty value.
-	$cfg['served'] = getenv( 'COMPAT_SERVED' );
-	if ( is_string( $cfg['served'] ) && '' !== $cfg['served'] ) {
-		$cfg['served'] = mount_path( $cfg['served'], 'COMPAT_SERVED' );
-	}
-	$cfg['require'] = array_values( array_filter( array_map( 'trim', explode( "\n", (string) getenv( 'COMPAT_REQUIRE' ) ) ), 'strlen' ) );
-	$cfg['extra_roots'] = [];
-	foreach ( array_filter( explode( "\n", (string) getenv( 'COMPAT_EXTRA_ROOTS' ) ), 'strlen' ) as $root ) {
-		$malformed = '/' !== $root[0] || preg_match( '#//|/\.\.?(/|\z)|/\z|[\x00-\x1F\x7F]#', $root );
-		if ( $malformed || MOUNT_ROOT === $root || 0 === strpos( $root, MOUNT_ROOT . '/' ) ) {
-			throw new BadArgs( 'COMPAT_EXTRA_ROOTS must be absolute paths outside ' . MOUNT_ROOT . ', one per line' );
-		}
-		$cfg['extra_roots'][] = $root;
-	}
-	$supported           = (string) getenv( 'COMPAT_WP_SUPPORTED' );
-	$cfg['wp_supported'] = '' === $supported ? [] : explode( ',', $supported );
-	foreach ( $cfg['wp_supported'] as $branch ) {
-		if ( ! preg_match( '/^\d+\.\d+\z/', $branch ) ) {
-			throw new BadArgs( 'COMPAT_WP_SUPPORTED must be branches like 6.8, comma-separated' );
-		}
-	}
+	parse_contract_env( $cfg );
 	if ( ! preg_match( '/^\d+\.\d+\z/', $cfg['version'] ) ) {
 		throw new BadArgs( 'version must look like 8.4' );
 	}
@@ -2755,6 +2735,31 @@ function parse_args( array $argv, array &$cfg ): void {
 	$cfg['manifest']          = 'scan' === $cfg['mode'] && '1' === getenv( 'COMPAT_MANIFEST' );
 	if ( $cfg['low_factor'] > 1 || $cfg['high_factor'] < 1 ) {
 		throw new BadArgs( 'COMPAT_LOW_FACTOR must be at most 1 and COMPAT_HIGH_FACTOR at least 1' );
+	}
+}
+
+/** COMPAT_SERVED, COMPAT_REQUIRE, COMPAT_EXTRA_ROOTS and COMPAT_WP_SUPPORTED: what EE tells the scanner about the site. */
+function parse_contract_env( array &$cfg ): void {
+	// False when absent: a v3.11.1 call, unlike an empty value.
+	$cfg['served'] = getenv( 'COMPAT_SERVED' );
+	if ( is_string( $cfg['served'] ) && '' !== $cfg['served'] ) {
+		$cfg['served'] = mount_path( $cfg['served'], 'COMPAT_SERVED' );
+	}
+	$cfg['require'] = array_values( array_filter( array_map( 'trim', explode( "\n", (string) getenv( 'COMPAT_REQUIRE' ) ) ), 'strlen' ) );
+	$cfg['extra_roots'] = [];
+	foreach ( array_filter( explode( "\n", (string) getenv( 'COMPAT_EXTRA_ROOTS' ) ), 'strlen' ) as $root ) {
+		$malformed = '/' !== $root[0] || preg_match( '#//|/\.\.?(/|\z)|/\z|[\x00-\x1F\x7F]#', $root );
+		if ( $malformed || MOUNT_ROOT === $root || 0 === strpos( $root, MOUNT_ROOT . '/' ) ) {
+			throw new BadArgs( 'COMPAT_EXTRA_ROOTS must be absolute paths outside ' . MOUNT_ROOT . ', one per line' );
+		}
+		$cfg['extra_roots'][] = $root;
+	}
+	$supported           = (string) getenv( 'COMPAT_WP_SUPPORTED' );
+	$cfg['wp_supported'] = '' === $supported ? [] : explode( ',', $supported );
+	foreach ( $cfg['wp_supported'] as $branch ) {
+		if ( ! preg_match( '/^\d+\.\d+\z/', $branch ) ) {
+			throw new BadArgs( 'COMPAT_WP_SUPPORTED must be branches like 6.8, comma-separated' );
+		}
 	}
 }
 
